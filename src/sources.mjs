@@ -1,0 +1,107 @@
+// Job sources: where the list of links comes from. Both implement the same
+// interface — `load()` → jobs, `hasStatus`, `setStatus(job, value)` — so the
+// runner treats a single URL and a spreadsheet identically.
+import xlsx from "xlsx";
+import { existsSync, writeFileSync } from "node:fs";
+
+// A single URL passed on the command line. No status tracking.
+export class UrlSource {
+  constructor(url) {
+    this.url = url;
+    this.hasStatus = false;
+  }
+  async load() {
+    return [{ url: this.url, name: null, status: "", row: -1 }];
+  }
+  setStatus() {}
+}
+
+// A .xlsx/.xls/.csv/.tsv of links. Uses a header row with a url/link column
+// (optionally name/title), and a `status` column (created if missing) that is
+// written back after each row so batches are resumable. Headerless sheets are
+// read as "URLs in the first column" with no status tracking.
+export class SheetSource {
+  constructor(file, logger) {
+    this.file = file;
+    this.logger = logger;
+    this.hasStatus = false;
+    this._isText = /\.(csv|tsv|txt)$/i.test(file);
+    this._wb = null;
+    this._ws = null;
+    this._statusCol = -1;
+  }
+
+  async load() {
+    const wb = xlsx.readFile(this.file);
+    this._wb = wb;
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    this._ws = ws;
+    if (!ws || !ws["!ref"]) return [];
+
+    const range = xlsx.utils.decode_range(ws["!ref"]);
+    const hr = range.s.r;
+    const cell = (r, c) => ws[xlsx.utils.encode_cell({ r, c })]?.v;
+
+    const header = [];
+    for (let c = range.s.c; c <= range.e.c; c++) header[c] = String(cell(hr, c) ?? "").trim().toLowerCase();
+    const find = (names) => header.findIndex((h) => names.includes(h));
+    const urlCol = find(["url", "link", "links", "href"]);
+
+    // Headerless: first column is links, no status.
+    if (urlCol === -1) {
+      const aoa = xlsx.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" });
+      const jobs = [];
+      for (const r of aoa) {
+        const link = String(r[0] ?? "").trim();
+        if (/^https?:\/\//i.test(link)) jobs.push({ url: link, name: null, status: "", row: -1 });
+      }
+      this.hasStatus = false;
+      return jobs;
+    }
+
+    const nameCol = find(["name", "title", "output", "folder", "cbz"]);
+    let statusCol = find(["status"]);
+    if (statusCol === -1) {
+      statusCol = range.e.c + 1; // append a new status column and grow the range
+      ws[xlsx.utils.encode_cell({ r: hr, c: statusCol })] = { t: "s", v: "status" };
+      range.e.c = statusCol;
+      ws["!ref"] = xlsx.utils.encode_range(range);
+    }
+    this._statusCol = statusCol;
+    this.hasStatus = true;
+
+    const jobs = [];
+    for (let r = hr + 1; r <= range.e.r; r++) {
+      const link = String(cell(r, urlCol) ?? "").trim();
+      if (!/^https?:\/\//i.test(link)) continue;
+      const name = nameCol >= 0 ? String(cell(r, nameCol) ?? "").trim() : "";
+      const status = String(cell(r, statusCol) ?? "").trim().toLowerCase();
+      jobs.push({ url: link, name: name || null, status, row: r });
+    }
+    return jobs;
+  }
+
+  setStatus(job, value) {
+    if (!this.hasStatus || job.row < 0) return;
+    this._ws[xlsx.utils.encode_cell({ r: job.row, c: this._statusCol })] = { t: "s", v: value };
+    try {
+      if (this._isText) {
+        // Write plain text ourselves (no UTF-8 BOM; tab delimiter for .tsv).
+        const FS = /\.tsv$/i.test(this.file) ? "\t" : ",";
+        writeFileSync(this.file, xlsx.utils.sheet_to_csv(this._ws, { FS }));
+      } else {
+        xlsx.writeFile(this._wb, this.file);
+      }
+    } catch (e) {
+      this.logger?.warn(`couldn't write status back to ${this.file} (${e.message}). Is it open in Excel?`);
+    }
+  }
+}
+
+export function createJobSource(config, logger) {
+  if (config.listFile) {
+    if (!existsSync(config.listFile)) throw new Error(`list file not found: ${config.listFile}`);
+    return new SheetSource(config.listFile, logger);
+  }
+  return new UrlSource(config.url);
+}

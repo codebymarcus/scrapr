@@ -1,0 +1,28 @@
+node_modules/
+.DS_Store
+
+# Google Drive credentials & token (secrets — never commit)
+credentials.json
+token.json
+
+# Personal settings file (copy scraper.config.example.json → scraper.config.json)
+scraper.config.json
+
+# Scraper outputs and link lists (user data — never commit)
+downloads/
+test-out/
+batch-out/
+comics/
+out/
+*.cbz
+*.pdf
+*.csv
+*.tsv
+*.xlsx
+*.xls
+
+# Resumable download cache (scratch)
+.scaper-cache/
+
+# Ad-hoc scrape output (extracted comic pages)
+x-men-115/

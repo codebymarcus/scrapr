@@ -1,0 +1,43 @@
+{
+  // Copy this file to scraper.config.json and edit. Settings here are defaults;
+  // any CLI flag overrides them for a single run. Comments (// and /* */) are
+  // allowed. Delete keys you don't need — omitted keys fall back to defaults.
+
+  // --- Output ---
+  "out": "comics",         // output folder. Single URL: exact dir. Batch (--list): parent dir, one subfolder per link.
+  "format": "jpg",         // image format: "jpg" | "png" | "webp" | "keep" (original). "pdf": true forces "jpg".
+  "quality": 88,           // JPEG/WebP quality, 1–100 (85–90 recommended).
+  "maxEdge": 2400,         // cap the longest image side in px (aspect kept, never upscales).
+  "cbz": false,            // also write a .cbz archive: true | false.
+  "pdf": true,             // also write a .pdf (one page per image): true | false.
+  "keepLoose": false,      // keep the loose image files too: true | false (false = only the archive(s)).
+
+  // --- Google Drive upload (optional; needs credentials.json + token.json) ---
+  "drive": true,                 // enable uploading the produced .cbz/.pdf: true | false.
+  "driveFolder": "PUT_PARENT_FOLDER_ID_HERE", // parent folder id (from the Drive URL after /folders/); null = My Drive root.
+  "driveSubfolder": "Comics",    // folder created on the fly inside driveFolder; null = upload directly into driveFolder.
+  "driveOnly": "pdf",            // upload only this type: "pdf" | "cbz" | null (upload both that were produced).
+  "driveCredentials": "credentials.json", // path to the OAuth client JSON.
+  "driveToken": "token.json",             // path to the token from `node authorize.mjs`.
+
+  // --- Disk space ---
+  "cleanup": true,         // after a link uploads OK, delete its local files; also delete a partial (incomplete) download. Needs "drive" to delete on success.
+
+  // --- Navigation / pacing (usually fine at defaults) ---
+  "advanceKey": "ArrowRight",  // key that turns the page: "ArrowRight" | "ArrowDown" | "PageDown" | "Space" | ...
+  "settle": 700,               // ms to wait after each page turn.
+  "jitter": 0.3,               // randomize every wait by ± this fraction (0–1).
+  "itemDelay": 3000,           // ms pause between links in batch mode.
+  "headed": false,             // show the browser window (for debugging): true | false.
+  "dryRun": false,             // preview the batch (targets, skips, Drive dest) without scraping or uploading.
+  "cache": true,               // resumable page cache: keep downloaded pages between runs so an interrupted link resumes instead of re-downloading. false = --no-cache.
+  "acceptPartial": false,      // when a rerun finds no new pages, keep what's cached and mark done instead of retrying forever.
+  "verbose": false,            // per-page capture, skip reasons, phase timings, config summary.
+  "debug": false,              // low-level detail: every image response, key presses, navigation, rate-limit math, cache hits.
+  "logFile": null,             // write a full timestamped trace of every level to this path (e.g. "run.log").
+  "costPerGb": null            // estimate metered-proxy cost: report data volume, plus a ~$ estimate at this per-GB rate (e.g. 4).
+
+  // Other overridable keys (see README): countSelector, forcePages, maxRetries,
+  // rateLimitBase, navTimeout, minBytes, hostFilter, issuePrefix, allImages,
+  // cbzName, pdfName.
+}

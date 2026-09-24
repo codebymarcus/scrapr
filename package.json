@@ -1,0 +1,22 @@
+{
+  "name": "scaper-cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "scaper": "./scrape.mjs"
+  },
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google-cloud/local-auth": "^3.0.1",
+    "archiver": "^7.0.1",
+    "googleapis": "^181.0.0",
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.48.0",
+    "sharp": "^0.33.5",
+    "xlsx": "^0.18.5"
+  }
+}

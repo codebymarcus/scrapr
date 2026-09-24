@@ -1,0 +1,50 @@
+// Naming & output-path resolution: where a job's files, .cbz and .pdf go.
+import path from "node:path";
+
+export function slugFromUrl(u) {
+  try {
+    const { host, pathname } = new URL(u);
+    return (host + pathname).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "output";
+  } catch {
+    return "output";
+  }
+}
+
+export function sanitizeName(s) {
+  return String(s)
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+/, "")
+    .slice(0, 120) || "output";
+}
+
+// The resumable-cache dir for a job: a `.scaper-cache/<name>` folder beside the
+// output dir (never inside it, so artifact cleanup can't touch the cache).
+function cacheDirFor(outDir) {
+  return path.join(path.dirname(outDir), ".scaper-cache", path.basename(outDir));
+}
+
+// Resolve the output targets for one job.
+//   Single-URL mode: --out is the exact output dir.
+//   Batch mode:      --out is the PARENT dir; each link gets its own subfolder.
+export function resolveTargets(config, job) {
+  if (config.listFile) {
+    const base = config.out || "downloads";
+    const folder = job.name ? sanitizeName(job.name) : slugFromUrl(job.url);
+    const outDir = path.join(base, folder);
+    return {
+      outDir,
+      cbzPath: path.join(base, `${folder}.cbz`),
+      pdfPath: path.join(base, `${folder}.pdf`),
+      cacheDir: cacheDirFor(outDir)
+    };
+  }
+  const outDir = config.out || path.join("downloads", slugFromUrl(job.url));
+  return {
+    outDir,
+    cbzPath: config.cbzName || `${outDir}.cbz`,
+    pdfPath: config.pdfName || `${outDir}.pdf`,
+    cacheDir: cacheDirFor(outDir)
+  };
+}
