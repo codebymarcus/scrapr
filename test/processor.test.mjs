@@ -19,6 +19,11 @@ test("pageNumberFromUrl: parses '<n>-<hash>.<ext>' page numbers", () => {
   assert.equal(pageNumberFromUrl("https://cdn.x/39131/12-deadbeef.webp?x=1"), 12);
 });
 
+test("pageNumberFromUrl: parses batcave '<ts>_<index>_<hash>.<ext>' (0-based → 1-based)", () => {
+  assert.equal(pageNumberFromUrl("https://img.batcave.biz/img/30378/213188/1785660934_0000_9f7bcd.jpg"), 1);
+  assert.equal(pageNumberFromUrl("https://img.batcave.biz/img/30378/213188/1785660940_0028_0e847c.jpg"), 29);
+});
+
 test("pageNumberFromUrl: returns null when no page number present", () => {
   assert.equal(pageNumberFromUrl("https://cdn.x/cover.jpg"), null);
   assert.equal(pageNumberFromUrl("https://cdn.x/some/path/"), null);

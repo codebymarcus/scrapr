@@ -9,10 +9,17 @@ const EXT_BY_TYPE = {
   "image/svg+xml": "svg", "image/bmp": "bmp"
 };
 
-// Parse a page number from a URL like ".../39131/4-<hash>.jpg" so we can order.
+// Parse a page number from a page-image URL so pages can be ordered, counted,
+// and exempted from the small-image (minBytes) filter. Two known formats:
+//   A) ".../39131/4-<hash>.jpg"                 → 4   (1-based, dash form)
+//   B) ".../213188/<ts>_<idx>_<hash>.jpg"       → idx+1 (batcave: zero-based
+//                                                  index between underscores)
 export function pageNumberFromUrl(u) {
-  const m = u.match(/\/(\d+)-[a-z0-9]+\.[a-z0-9]+(?:[?#]|$)/i);
-  return m ? parseInt(m[1], 10) : null;
+  const dash = u.match(/\/(\d+)-[a-z0-9]+\.[a-z0-9]+(?:[?#]|$)/i);
+  if (dash) return parseInt(dash[1], 10);
+  const underscore = u.match(/_(\d{1,4})_[a-z0-9]+\.[a-z0-9]+(?:[?#]|$)/i);
+  if (underscore) return parseInt(underscore[1], 10) + 1;
+  return null;
 }
 
 // Order pages by parsed page number. Images without a parseable number fall

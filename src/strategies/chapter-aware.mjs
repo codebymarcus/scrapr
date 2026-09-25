@@ -1,38 +1,45 @@
-// Stage 2 (the real fallback): the batcave.biz reader auto-navigates to the NEXT
-// chapter URL when you press past the last page, so Stage 1 loses the true last
-// page and reports e.g. 39/40 forever. This strategy avoids that by (a) using a
-// longer settle so the last page's image finishes loading, (b) never pressing
-// past the last page when the count is known, and (c) if the reader still jumps
-// (over-detected count), detecting the URL change, navigating back, and stopping
-// with whatever it has. It shares the same ImageCapture, so it only needs to
-// pick up pages Stage 1 missed. Collaborators are injectable for testing.
-import { openReader as defaultOpenReader, navigateWithRetry as defaultNavigateWithRetry } from "../navigation.mjs";
+// Stage 2 (the real fallback) for continuous / looping multi-chapter readers
+// like batcave.biz's "event" reader.
+//
+// On such a reader, opening a chapter URL (e.g. /event/ultimate-marvel/395) shows
+// the target chapter, but pressing the advance key flows OUT into adjacent
+// chapters and only loops back to the target's remaining pages much later — so
+// Stage 1 (keyboard-advance) stalls (its stagnant-limit trips while it traverses
+// a neighbouring chapter whose images are filtered out) and never collects the
+// target chapter.
+//
+// This strategy instead addresses the target chapter's pages DIRECTLY by URL
+// fragment: the reader exposes page N as `<chapterUrl>#page-N`. It reads the
+// chapter's page count from the reader's own "Page X / N" counter (falling back
+// to the image count), locks the shared capture onto the target chapter's image
+// directory (so a neighbouring chapter's preloaded images can't hijack the
+// directory filter), then visits #page-1 … #page-N in order. Pages arrive in
+// order, so the output is ordered by capture sequence even though the image
+// filenames carry no parseable page number.
+//
+// The browser-touching steps (detectTotal / readTargetDir / gotoPage) are
+// instance methods so they can be overridden in unit tests without a real page.
+import { openReader as defaultOpenReader } from "../navigation.mjs";
 import { sleep, withJitter } from "../time.mjs";
 import { ok, failed, mapError, FailureCode } from "./strategy.mjs";
 
-const STAGNANT_LIMIT = 5;
+// The reader's page-image elements (same selector family as the count selector).
+const READER_IMG_SEL = "img.reader__item, .reader img, #reader img";
 
-// Two reader URLs are the same issue when origin + pathname match (ignoring hash
-// and query, which readers use for in-chapter page state). The next-chapter jump
-// changes the pathname (.../394 → .../395), so it is detected as a different issue.
-export function sameIssue(a, b) {
-  const key = (u) => {
-    try {
-      const x = new URL(u);
-      return x.origin + x.pathname.replace(/\/$/, "");
-    } catch {
-      return u;
-    }
-  };
-  return key(a) === key(b);
+// The directory portion of an image URL (everything up to and including the last
+// "/"), used to identify which chapter an image belongs to.
+export function imageDir(u) {
+  if (!u) return null;
+  const s = String(u);
+  const i = s.lastIndexOf("/");
+  return i >= 0 ? s.slice(0, i + 1) : null;
 }
 
 export class ChapterAwareStrategy {
-  constructor({ openReader = defaultOpenReader, navigateWithRetry = defaultNavigateWithRetry } = {}) {
+  constructor({ openReader = defaultOpenReader } = {}) {
     this.name = "chapter-aware";
     this.defaultMaxAttempts = 1;
     this._openReader = openReader;
-    this._navigateWithRetry = navigateWithRetry;
   }
 
   async execute({ session, job, config, capture, meter, logger }) {
@@ -41,10 +48,9 @@ export class ChapterAwareStrategy {
       await capture.attach(page);
       meter?.attach?.(page);
       await this._openReader(page, job.url, config, logger);
-      const openUrl = page.url() || job.url;
-      const { total, jumped } = await this._drive(page, capture, config, logger, openUrl);
+      const total = await this._collect(page, capture, config, logger);
       const downloaded = capture.size;
-      if (!(downloaded > 0)) return failed(jumped ? FailureCode.NAVIGATION_JUMP : FailureCode.EMPTY_RESULT, "no pages captured");
+      if (!(downloaded > 0)) return failed(FailureCode.EMPTY_RESULT, "no pages captured");
       return ok({ downloaded, total });
     } catch (e) {
       return failed(mapError(e), e?.message);
@@ -53,63 +59,86 @@ export class ChapterAwareStrategy {
     }
   }
 
+  // --- browser-touching seams (overridden in tests) ---
+
+  // The target chapter's page count: prefer the reader's own "Page X / N"
+  // counter, fall back to the number of page-image elements, then to --pages.
   async detectTotal(page, config) {
     if (config.forcePages) return config.forcePages;
-    return page.evaluate((sel) => document.querySelectorAll(sel).length, config.countSelector).catch(() => 0);
+    return page
+      .evaluate((sel) => {
+        const m = (document.body?.innerText || "").match(/Page\s+\d+\s*\/\s*(\d+)/i);
+        if (m) return parseInt(m[1], 10);
+        return document.querySelectorAll(sel).length;
+      }, READER_IMG_SEL)
+      .catch(() => 0);
   }
 
-  async _drive(page, capture, config, logger, openUrl) {
+  // The target chapter's image directory, from the currently shown page image.
+  async readTargetDir(page) {
+    const url = await page
+      .evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return el?.currentSrc || el?.src || el?.getAttribute("data-src") || null;
+      }, READER_IMG_SEL)
+      .catch(() => null);
+    return imageDir(url);
+  }
+
+  // Navigate the reader to page N via its URL fragment.
+  async gotoPage(page, n) {
+    await page.evaluate((nn) => { window.location.hash = `#page-${nn}`; }, n).catch(() => {});
+  }
+
+  async _collect(page, capture, config, logger) {
     const total = await this.detectTotal(page, config);
-    const target = total && total > 0 ? total : Infinity;
-    // Never press PAST the last page when the count is known: total-1 presses take
-    // page 1 → page `total`. A longer settle lets that last page's image load.
-    const budget = total && total > 0 ? total - 1 : 600;
-    // A longer settle than Stage 1 so the last page's image finishes loading
-    // before we would otherwise advance. Driven by config.settle (kept small in
-    // tests), doubled; defaults to 700 → 1400ms in production.
-    const endSettle = (config.settle || 700) * 2;
-
-    await page.mouse.click(640, 450).catch(() => {}); // give the reader keyboard focus
-    await page.waitForTimeout(300);
-
-    let stagnant = 0;
-    let last = capture.size;
-    let jumped = false;
-    logger.progressBar?.(capture.size, total, "pages");
-
-    for (let i = 0; i < budget; i++) {
-      if (capture.size >= target) break;
-      const before = page.url();
-      await page.keyboard.press(config.advanceKey).catch(() => {});
-      await sleep(withJitter(endSettle, config.jitter));
-      const after = page.url();
-
-      if (!sameIssue(before, after)) {
-        // Over-detected count still pressed us into the next chapter. Go back to
-        // the reader, let the last page settle, and stop with what we have.
-        logger.warn(`end-of-chapter jump detected (${after}); recovering and stopping`);
-        jumped = true;
-        await this._navigateWithRetry(page, openUrl, config, logger);
-        await sleep(withJitter(endSettle, config.jitter));
-        break;
-      }
-
-      const backoff = capture.takeBackoff?.() || 0;
-      if (backoff > 0) {
-        logger.warn(`rate-limited by server; pausing ${Math.round(backoff / 1000)}s`);
-        await sleep(backoff);
-      }
-
-      if (capture.size === last) {
-        if (++stagnant >= STAGNANT_LIMIT) break;
-      } else {
-        stagnant = 0;
-        last = capture.size;
-      }
-      logger.progressBar?.(capture.size, total, "pages");
+    if (!(total > 0)) {
+      logger.warn?.("chapter-aware: could not detect a page count; leaving to other strategies");
+      return total;
     }
 
-    await page.waitForTimeout(1000); // let the last page's image finish loading
-    return { total, jumped };
+    const dir = await this.readTargetDir(page);
+    if (dir) {
+      capture.lockIssueDir?.(dir);
+      logger.verbose?.(`chapter-aware: locked target chapter dir ${dir}`);
+    }
+
+    // NB: do NOT click inside the reader — on a continuous reader a click
+    // advances into the next chapter, moving the URL off the target chapter so
+    // #page-N would then address the wrong chapter. Fragment navigation alone
+    // keeps us pinned to the opened chapter.
+    logger.info?.(`chapter-aware: addressing ${total} page(s) directly by #page-N`);
+
+    const settle = config.settle || 700;
+    const got = new Set(); // page indices that produced a new captured image
+    logger.progressBar?.(capture.size, total, "pages");
+
+    // Two passes: visit each page by fragment; a page that didn't yield a new
+    // image (transient load miss) is retried on the second pass. Stop as soon as
+    // every page is captured.
+    for (let pass = 0; pass < 2 && capture.size < total; pass++) {
+      for (let n = 1; n <= total; n++) {
+        if (capture.size >= total) break;
+        if (got.has(n)) continue;
+        const before = capture.size;
+        await this.gotoPage(page, n);
+        await sleep(withJitter(settle, config.jitter));
+
+        const backoff = capture.takeBackoff?.() || 0;
+        if (backoff > 0) {
+          logger.warn?.(`rate-limited by server; pausing ${Math.round(backoff / 1000)}s`);
+          await sleep(backoff);
+        }
+
+        if (capture.size > before) {
+          got.add(n);
+          logger.progressBar?.(capture.size, total, "pages");
+        }
+      }
+    }
+
+    await page.waitForTimeout?.(1000); // let the last image settle
+    logger.progressBar?.(capture.size, total, "pages");
+    return total;
   }
 }

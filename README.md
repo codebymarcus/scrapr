@@ -128,17 +128,20 @@ any JS gate, detects the page count from the reader's DOM elements, presses the
 advance key (`--advance-key`) through every page, and collects images as they
 load. This is the first strategy in the default pipeline.
 
-**`chapter-aware`** — A fallback for readers that auto-navigate to the next
-chapter when you press past the final page (e.g. batcave.biz). Avoids the
-over-detected page count that causes Stage 1 to loop forever by:
-- Using a longer settle period so the last page's image completes loading.
-- Never pressing past the known final page.
-- Detecting a URL change (chapter jump), navigating back, and stopping with
-  whatever pages it has.
+**`chapter-aware`** — A fallback for *continuous / looping* multi-chapter readers
+like batcave.biz's "event" reader, where pressing the advance key flows out of
+the opened chapter into adjacent chapters (so `current` stalls, collecting only
+the first page). Instead of pressing keys, it addresses the target chapter's
+pages **directly by URL fragment** (`<chapterUrl>#page-N`):
+- Reads the chapter's page count from the reader's own "Page X / N" counter.
+- Locks the shared `ImageCapture` onto the target chapter's image directory so a
+  neighbouring chapter's preloaded images can't hijack the directory filter.
+- Visits `#page-1 … #page-N` in order (with a second pass to retry any page whose
+  image didn't load the first time), then stops.
 
-Since `chapter-aware` shares the same `ImageCapture`, it only picks up pages
-the first strategy missed — useful when `current` completes all but the final
-page on a auto-navigating reader.
+Pages arrive in order, so output is ordered correctly even though the image
+filenames carry no dash-style page number. Since `chapter-aware` shares the same
+`ImageCapture`/`PageCache`, it only picks up pages the earlier strategy missed.
 
 ### Configuration
 

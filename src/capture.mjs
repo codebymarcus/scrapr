@@ -74,6 +74,15 @@ export class ImageCapture {
     return this._servedFromCache.has(url);
   }
 
+  // Force the target chapter's image directory. A strategy that navigates a known
+  // chapter directly (e.g. by #page-N fragment) calls this so a neighbouring
+  // chapter's preloaded images can't hijack the "first image wins" directory lock.
+  lockIssueDir(dir) {
+    if (!dir) return;
+    this._issueDir = dir;
+    if (this.cache) this.cache.issueDir = dir;
+  }
+
   list() {
     return [...this.images.entries()].map(([url, v]) => ({ url, ...v }));
   }

@@ -1,95 +1,112 @@
+// chapter-aware strategy: addresses a continuous/looping reader's target chapter
+// directly by #page-N fragment (batcave.biz), instead of pressing ArrowRight
+// through adjacent chapters. Tested with fakes — no real browser.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ChapterAwareStrategy, sameIssue } from "../src/strategies/chapter-aware.mjs";
+import { ChapterAwareStrategy, imageDir } from "../src/strategies/chapter-aware.mjs";
 
 const noopLogger = { info() {}, warn() {}, success() {}, error() {}, verbose() {}, debug() {}, progressBar() {} };
 
-test("sameIssue: same chapter path (differing hash/query) is the same issue", () => {
-  assert.equal(sameIssue("https://batcave.biz/event/ultimate-marvel/394", "https://batcave.biz/event/ultimate-marvel/394#p=5"), true);
-  assert.equal(sameIssue("https://batcave.biz/event/ultimate-marvel/394", "https://batcave.biz/event/ultimate-marvel/394?page=5"), true);
-});
-
-test("sameIssue: the next-chapter jump (394 → 395) is a DIFFERENT issue", () => {
-  assert.equal(sameIssue("https://batcave.biz/event/ultimate-marvel/394", "https://batcave.biz/event/ultimate-marvel/395"), false);
-});
-
-// A controllable fake reader page. capture.size grows one per press (page 1 is
-// already loaded on open), simulating pages rendering as we advance.
-function fakeReader({ total, jumpAtPress = null }) {
-  let presses = 0;
-  let url = "https://batcave.biz/event/ultimate-marvel/394";
-  const page = {
-    _presses: () => presses,
-    url: () => url,
-    async evaluate() { return total; },       // detectTotal count
-    mouse: { click: async () => {} },
-    keyboard: { press: async () => { presses++; if (jumpAtPress && presses >= jumpAtPress) url = "https://batcave.biz/event/ultimate-marvel/395"; } },
-    async waitForTimeout() {},
-    closed: false,
-    async close() { this.closed = true; }
+// A fake capture that grows when a page is "loaded". `flaky` is a set of page
+// indices that fail on their first visit and succeed on a later one.
+function fakeCapture({ start = 0, flaky = new Set() } = {}) {
+  const seenPages = new Set();
+  const attempted = new Map();
+  const cap = {
+    _size: start,
+    locked: null,
+    get size() { return this._size; },
+    async attach() {},
+    list: () => [],
+    takeBackoff: () => 0,
+    lockIssueDir(dir) { this.locked = dir; },
+    // called by the test's gotoPage fake to simulate a page's image loading
+    _load(n) {
+      const tries = (attempted.get(n) || 0) + 1;
+      attempted.set(n, tries);
+      if (seenPages.has(n)) return;              // already captured → no new image
+      if (flaky.has(n) && tries < 2) return;     // transient miss on first visit
+      seenPages.add(n);
+      this._size++;
+    }
   };
-  const capture = { attach: async () => {}, takeBackoff: () => 0, list: () => [], get size() { return Math.min(presses + 1, total); } };
-  return { page, capture };
+  return cap;
 }
 
-test("chapter-aware: accurate total → reaches the last page without jumping", async () => {
-  const { page, capture } = fakeReader({ total: 5, jumpAtPress: null });
-  let recovered = false;
-  const strat = new ChapterAwareStrategy({
-    openReader: async () => {},
-    navigateWithRetry: async () => { recovered = true; }
-  });
-  const res = await strat.execute({
-    session: { newPage: async () => page }, job: { url: page.url() }, config: { settle: 10, jitter: 0 },
-    capture, meter: { attach() {} }, logger: noopLogger
-  });
-  assert.equal(res.status, "success");
-  assert.equal(res.data.downloaded, 5);
-  assert.equal(recovered, false, "no recovery needed when total is accurate");
+function fakePage() {
+  return { closed: false, mouse: { click: async () => {} }, async waitForTimeout() {}, async close() { this.closed = true; }, url: () => "https://batcave.biz/event/ultimate-marvel/395" };
+}
+
+// Build a strategy with the browser-touching seams stubbed for the test.
+function strategyFor(capture, { total = 5, dir = "https://img.batcave.biz/img/30378/213188/", visited } = {}) {
+  const s = new ChapterAwareStrategy({ openReader: async () => {} });
+  s.detectTotal = async () => total;
+  s.readTargetDir = async () => dir;
+  s.gotoPage = async (_page, n) => { visited?.push(n); capture._load(n); };
+  return s;
+}
+
+const ctxFor = (capture, page) => ({
+  session: { newPage: async () => page },
+  job: { url: "https://batcave.biz/event/ultimate-marvel/395" },
+  config: { settle: 1, jitter: 0 },
+  capture,
+  meter: { attach() {} },
+  logger: noopLogger
 });
 
-test("chapter-aware: over-detected total → detects the jump, recovers, returns what it has", async () => {
-  const { page, capture } = fakeReader({ total: 6, jumpAtPress: 3 });
-  let recovered = false;
-  const strat = new ChapterAwareStrategy({
-    openReader: async () => {},
-    navigateWithRetry: async () => { recovered = true; }
-  });
-  const res = await strat.execute({
-    session: { newPage: async () => page }, job: { url: "https://batcave.biz/event/ultimate-marvel/394" },
-    config: { settle: 10, jitter: 0 }, capture, meter: { attach() {} }, logger: noopLogger
-  });
-  assert.equal(recovered, true, "recovery ran on the detected jump");
-  assert.ok(res.data.downloaded > 0, "keeps the pages captured before the jump");
+test("imageDir: derives the directory from an image URL", () => {
+  assert.equal(imageDir("https://img.batcave.biz/img/30378/213188/1785_0000_ab.jpg"), "https://img.batcave.biz/img/30378/213188/");
+  assert.equal(imageDir(""), null);
+  assert.equal(imageDir(null), null);
+});
+
+test("addresses every page by fragment and completes", async () => {
+  const capture = fakeCapture();
+  const page = fakePage();
+  const visited = [];
+  const s = strategyFor(capture, { total: 5, visited });
+  const res = await s.execute(ctxFor(capture, page));
+  assert.equal(res.status, "success");
+  assert.deepEqual(res.data, { downloaded: 5, total: 5 });
+  assert.deepEqual(visited, [1, 2, 3, 4, 5], "visited pages 1..N in order");
   assert.equal(page.closed, true);
 });
 
-test("chapter-aware: zero pages captured, no jump → failed EMPTY_RESULT", async () => {
-  const { page, capture } = fakeReader({ total: 0, jumpAtPress: null });
-  const strat = new ChapterAwareStrategy({
-    openReader: async () => {},
-    navigateWithRetry: async () => {}
-  });
-  const res = await strat.execute({
-    session: { newPage: async () => page }, job: { url: page.url() }, config: { settle: 10, jitter: 0 },
-    capture, meter: { attach() {} }, logger: noopLogger
-  });
+test("locks the capture onto the target chapter's image directory", async () => {
+  const capture = fakeCapture();
+  const s = strategyFor(capture, { total: 3, dir: "https://img.batcave.biz/img/30378/213188/" });
+  await s.execute(ctxFor(capture, fakePage()));
+  assert.equal(capture.locked, "https://img.batcave.biz/img/30378/213188/");
+});
+
+test("re-visits a page that missed on the first pass", async () => {
+  const capture = fakeCapture({ flaky: new Set([3]) });
+  const visited = [];
+  const s = strategyFor(capture, { total: 5, visited });
+  const res = await s.execute(ctxFor(capture, fakePage()));
+  assert.equal(res.status, "success");
+  assert.equal(res.data.downloaded, 5, "all pages captured after the retry pass");
+  assert.equal(visited.filter((n) => n === 3).length, 2, "page 3 was revisited");
+});
+
+test("fails with EMPTY_RESULT when nothing loads", async () => {
+  const capture = fakeCapture();
+  const s = new ChapterAwareStrategy({ openReader: async () => {} });
+  s.detectTotal = async () => 4;
+  s.readTargetDir = async () => "https://img/x/dir/";
+  s.gotoPage = async () => {}; // never loads anything
+  const res = await s.execute(ctxFor(capture, fakePage()));
   assert.equal(res.status, "failed");
   assert.equal(res.error.code, "EMPTY_RESULT");
 });
 
-test("chapter-aware: zero pages captured AND a jump → failed NAVIGATION_JUMP", async () => {
-  const { page, capture } = fakeReader({ total: 0, jumpAtPress: 2 });
-  let recovered = false;
-  const strat = new ChapterAwareStrategy({
-    openReader: async () => {},
-    navigateWithRetry: async () => { recovered = true; }
-  });
-  const res = await strat.execute({
-    session: { newPage: async () => page }, job: { url: "https://batcave.biz/event/ultimate-marvel/394" },
-    config: { settle: 10, jitter: 0 }, capture, meter: { attach() {} }, logger: noopLogger
-  });
+test("maps a thrown error from openReader to a failed result", async () => {
+  const capture = fakeCapture();
+  const page = fakePage();
+  const s = new ChapterAwareStrategy({ openReader: async () => { const e = new Error("Timeout 45000ms exceeded"); e.name = "TimeoutError"; throw e; } });
+  const res = await s.execute(ctxFor(capture, page));
   assert.equal(res.status, "failed");
-  assert.equal(res.error.code, "NAVIGATION_JUMP");
-  assert.equal(recovered, true, "recovery still runs even though nothing was captured");
+  assert.equal(res.error.code, "TIMEOUT");
+  assert.equal(page.closed, true);
 });

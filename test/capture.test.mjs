@@ -55,6 +55,14 @@ test("ImageCapture: de-duplicates the same URL", async () => {
   assert.equal(cap.size, 1);
 });
 
+test("lockIssueDir: forces the chapter dir so other-chapter images are skipped", async () => {
+  const cap = new ImageCapture({ ...baseConfig, allImages: false }, noopLogger);
+  cap.lockIssueDir("https://img.x/chap/213188/");
+  await cap._onResponse(fakeImageResponse("https://img.x/chap/213188/a.jpg"));
+  await cap._onResponse(fakeImageResponse("https://img.x/other/212957/b.jpg"));
+  assert.deepEqual(cap.list().map((e) => e.url), ["https://img.x/chap/213188/a.jpg"]);
+});
+
 test("seedFromCache: loads cached pages and reports the seeded count", async () => {
   await withCache(async (cache) => {
     await cache.put("https://cdn.x/1.jpg", Buffer.alloc(50000, 1), "image/jpeg", 0, 1);
