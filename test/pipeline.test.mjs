@@ -1,7 +1,7 @@
 // Pipeline helpers: skip reasoning and the --dry-run preview.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { skipReason, describeDryRun, decideOutcome, BatchRunner } from "../src/pipeline.mjs";
+import { skipReason, describeDryRun, decideOutcome, BatchRunner, scrapeJob } from "../src/pipeline.mjs";
 
 const noopLogger = {
   info() {}, warn() {}, muted() {}, success() {}, error() {}, step() {}, section() {}, progressBar() {}
@@ -127,4 +127,27 @@ test("describeDryRun: reports the cache it would clear with --clear-cache", () =
   const config = { listFile: null, out: "myout", cbz: true, clearCache: true };
   const lines = describeDryRun(config, [{ url: "https://x/read", name: null, status: "" }]).join("\n");
   assert.match(lines, /would clear cache/);
+});
+
+test("scrapeJob: on orchestrator success, packages and returns complete", async () => {
+  const calls = { write: 0 };
+  const config = { cache: false, cleanup: false, drive: false, out: "out", costPerGb: null };
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const packagers = [{ write: async () => { calls.write++; } }];
+  const orchestrator = { run: async () => ({ status: "success", usedStrategy: "current", downloaded: 3, total: 3, attempts: [] }) };
+  const r = await scrapeJob({}, { url: "https://x/read", name: "n" }, config, processor, packagers, null, noopLogger, orchestrator);
+  assert.equal(r.complete, true);
+  assert.equal(r.usedStrategy, "current");
+  assert.equal(calls.write, 1);
+});
+
+test("scrapeJob: on orchestrator failure, returns incomplete and does not package", async () => {
+  const calls = { process: 0 };
+  const config = { cache: false, cleanup: false, drive: false, out: "out", costPerGb: null };
+  const processor = { process: async () => { calls.process++; return []; } };
+  const orchestrator = { run: async () => ({ status: "failed", usedStrategy: null, downloaded: 39, total: 40, attempts: [{ name: "current", attempt: 1, status: "incomplete" }] }) };
+  const r = await scrapeJob({}, { url: "https://x/read" }, config, processor, [], null, noopLogger, orchestrator);
+  assert.equal(r.complete, false);
+  assert.equal(r.saved, 39);
+  assert.equal(calls.process, 0, "no packaging on failure");
 });

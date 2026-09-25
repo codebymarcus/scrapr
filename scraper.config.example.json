@@ -35,7 +35,13 @@
   "verbose": false,            // per-page capture, skip reasons, phase timings, config summary.
   "debug": false,              // low-level detail: every image response, key presses, navigation, rate-limit math, cache hits.
   "logFile": null,             // write a full timestamped trace of every level to this path (e.g. "run.log").
-  "costPerGb": null            // estimate metered-proxy cost: report data volume, plus a ~$ estimate at this per-GB rate (e.g. 4).
+  "costPerGb": null,           // estimate metered-proxy cost: report data volume, plus a ~$ estimate at this per-GB rate (e.g. 4).
+
+  // --- Scraping strategies (ordered fallback pipeline; omit to use the default) ---
+  "strategies": [
+    { "name": "current",       "enabled": true, "maxAttempts": 2 },
+    { "name": "chapter-aware", "enabled": true, "maxAttempts": 1 }
+  ]
 
   // Other overridable keys (see README): countSelector, forcePages, maxRetries,
   // rateLimitBase, navTimeout, minBytes, hostFilter, issuePrefix, allImages,

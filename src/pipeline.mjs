@@ -7,10 +7,8 @@
 // swap without editing this file.
 import { sleep, withJitter } from "./time.mjs";
 import { BrowserSession } from "./browser.mjs";
-import { openReader } from "./navigation.mjs";
 import { ImageCapture } from "./capture.mjs";
-import { ReaderDriver } from "./reader.mjs";
-import { ImageProcessor, missingPages, formatPageList } from "./processor.mjs";
+import { ImageProcessor } from "./processor.mjs";
 import { buildPackagers } from "./packagers.mjs";
 import { createJobSource } from "./sources.mjs";
 import { DriveUploader } from "./drive.mjs";
@@ -19,8 +17,10 @@ import { PageCache } from "./cache.mjs";
 import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { decideOutcome } from "./outcome.mjs";
-export { decideOutcome };
+import { ScrapingOrchestrator } from "./orchestrator.mjs";
+import { resolveStrategies } from "./strategies/registry.mjs";
+import { validate } from "./result-validator.mjs";
+export { decideOutcome } from "./outcome.mjs";
 
 // Which rows are left alone. Only blank or "retry" are crawled. Shared by the
 // batch loop and the --dry-run preview so they never disagree.
@@ -77,68 +77,40 @@ async function removeJobArtifacts(targets, logger) {
 }
 
 // Scrape one URL through the full sequence:
-//   open cache → seed → download (missing pages only) → (incomplete? keep the
-//   cache + retry) → convert/package → upload → clean up local files + cache.
-// Returns { saved, total, complete }.
-export async function scrapeJob(session, job, config, processor, packagers, uploader, logger) {
-  const page = await session.newPage();
+//   acquire (via the strategy orchestrator) → convert/package → upload →
+//   clean up local files + cache.
+// Returns { saved, total, complete, usedStrategy, attempts }.
+export async function scrapeJob(session, job, config, processor, packagers, uploader, logger, orchestrator) {
   const targets = resolveTargets(config, job);
-  // --clear-cache: drop this job's partial cache first so it starts fresh.
   if (config.clearCache) await clearJobCache(targets.cacheDir, logger);
-  // Resumable cache: keeps already-downloaded pages between runs so an
-  // interrupted job re-fetches only what's missing.
   const cache = config.cache ? await PageCache.open(targets.cacheDir) : null;
   const capture = new ImageCapture(config, logger, cache);
-  await capture.attach(page);
-  // Measure real network egress (excludes pages served from the resume cache) so
-  // metered-proxy data volume/cost can be surfaced.
   const meter = new BandwidthMeter({ skip: (url) => capture.wasServedFromCache(url) });
-  meter.attach(page);
   const seeded = cache ? await capture.seedFromCache() : 0;
   if (seeded) logger.info(`resuming: ${seeded} page(s) already cached — only missing pages will download`);
-  const since = (t) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
+
   try {
-    // 1. Download every page (cached ones are served from disk by the route).
-    const tOpen = Date.now();
-    await openReader(page, job.url, config, logger);
-    logger.verbose(`opened reader in ${since(tOpen)}`);
-    const tDl = Date.now();
-    const { total } = await new ReaderDriver(page, capture, config, logger).run();
-    const downloaded = capture.size;
-    logger.verbose(`download phase: ${downloaded - seeded} new + ${seeded} cached = ${downloaded} page(s) in ${since(tDl)}`);
-    if (cache && total) { cache.total = total; await cache.saveIndex().catch(() => {}); }
+    // Acquire phase: the orchestrator runs each configured strategy in order,
+    // retrying a strategy for transient failures and falling back to the next.
+    // All strategies share `capture` (and its PageCache), so a fallback only
+    // fetches what earlier stages missed.
+    const r = await orchestrator.run({ session, job, config, capture, meter, seeded });
+    if (cache && r.total) { cache.total = r.total; await cache.saveIndex().catch(() => {}); }
 
-    const outcome = decideOutcome({ downloaded, total, seeded, acceptPartial: config.acceptPartial });
-
-    // 1a. Incomplete and not accepted → KEEP the cache for the next run, retry.
-    if (!outcome.complete) {
-      const missing = missingPages(capture.list(), total);
-      if (missing.length) logger.warn(`missing page(s): ${formatPageList(missing)}`);
-      if (downloaded === 0) {
+    if (r.status !== "success") {
+      if ((r.downloaded ?? capture.size) === 0) {
         logger.error("No images captured. Try --headed to watch, or set --count-selector / --advance-key / --host.");
-      } else if (outcome.stagnant) {
-        logger.warn(
-          `no new pages this run (${downloaded}/${total || "?"}) — the page count may be over-detected or the last page is missing. ` +
-            `Rerun with --accept-partial to keep ${downloaded} page(s), or set --pages / --count-selector.`
-        );
-      } else {
-        logger.warn(`incomplete download (${downloaded}/${total || "?"})${cache ? ", cached for resume" : ""} — marking retry`);
       }
-      return { saved: downloaded, total, complete: false, bytes: meter.bytes, requests: meter.count };
+      return { saved: r.downloaded ?? capture.size, total: r.total, complete: false,
+               bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
     }
 
-    if (outcome.acceptedPartial) {
-      logger.warn(`accepting partial download: packaging ${downloaded}/${total || "?"} page(s) (--accept-partial)`);
-    }
-
-    // 1b. Convert & package (PDF and/or CBZ and/or loose files).
+    // Convert & package (unchanged).
     logger.step("→ converting & packaging");
-    const tPk = Date.now();
     const outputs = await processor.process(capture.list());
     for (const packager of packagers) await packager.write(outputs, targets);
-    logger.verbose(`packaged ${outputs.length} page(s) in ${since(tPk)}`);
 
-    // 1c. Upload to Drive. A failed upload → retry, and we keep local files.
+    // Upload to Drive; a failed upload → retry, keep local files (unchanged).
     let uploaded = false;
     if (uploader) {
       const uploadCbz = config.cbz && config.driveOnly !== "pdf";
@@ -153,29 +125,21 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
           uploaded = true;
         } catch (e) {
           logger.error(`Drive upload failed: ${e?.message || e}`);
-          return { saved: outputs.length, total, complete: false, bytes: meter.bytes, requests: meter.count };
+          return { saved: outputs.length, total: r.total, complete: false, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
         }
       }
     }
 
-    // 1d. Clean up local files to free space — only when there's a safe copy
-    // elsewhere (a successful upload). Without --drive we keep the files.
+    // Clean up local files only when there is a safe copy elsewhere (unchanged).
     if (config.cleanup) {
-      if (uploaded) {
-        logger.step("→ cleaning up local files");
-        await removeJobArtifacts(targets, logger);
-      } else if (!uploader) {
-        logger.warn("cleanup skipped: no --drive, refusing to delete the only local copy");
-      }
+      if (uploaded) { logger.step("→ cleaning up local files"); await removeJobArtifacts(targets, logger); }
+      else if (!uploader) logger.warn("cleanup skipped: no --drive, refusing to delete the only local copy");
     }
 
-    // 1e. The job succeeded — the resume cache is scratch and no longer needed.
     if (cache) await cache.clear().catch(() => {});
-
-    return { saved: outputs.length, total, complete: true, bytes: meter.bytes, requests: meter.count };
+    return { saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
   } finally {
     logger.info(`bandwidth: ${meter.summary(config.costPerGb)}`);
-    await page.close().catch(() => {});
   }
 }
 
@@ -186,6 +150,8 @@ export class BatchRunner {
     this._stopping = false;
     // Injectable so the batch loop can be unit-tested without a real browser.
     this._scrapeJob = deps.scrapeJob || scrapeJob;
+    this._resolveStrategies = deps.resolveStrategies || resolveStrategies;
+    this._validate = deps.validate || validate;
   }
 
   // Returns a process exit code.
@@ -214,6 +180,13 @@ export class BatchRunner {
 
     const processor = new ImageProcessor(this.config, this.logger);
     const packagers = buildPackagers(this.config, this.logger);
+
+    const strategies = this._resolveStrategies(this.config, this.logger);
+    if (!strategies.length) {
+      this.logger.error("no scraping strategies enabled — check the `strategies` config.");
+      return 1;
+    }
+    const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
 
     // Set up Drive upload before scraping so a misconfiguration fails fast.
     let uploader = null;
@@ -244,7 +217,7 @@ export class BatchRunner {
 
     let results;
     try {
-      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader });
+      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader, orchestrator });
     } finally {
       process.removeListener("SIGINT", onSigint);
       await session.close();
@@ -255,7 +228,7 @@ export class BatchRunner {
 
   // Iterate the jobs, honouring the status column and the stop flag. Extracted
   // from run() so it can be tested with an injected job runner and no browser.
-  async _runJobs({ jobs, source, session, processor, packagers, uploader }) {
+  async _runJobs({ jobs, source, session, processor, packagers, uploader, orchestrator }) {
     const results = [];
     let scrapedAny = false;
     for (let i = 0; i < jobs.length; i++) {
@@ -283,7 +256,7 @@ export class BatchRunner {
 
       let complete = false;
       try {
-        const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger);
+        const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator);
         complete = r.complete;
         results.push({ ...job, ...r, ok: complete });
       } catch (e) {
