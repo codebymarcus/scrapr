@@ -116,6 +116,10 @@ order, each strategy retries itself for transient failures (up to `maxAttempts`)
 and when retries are exhausted the orchestrator falls back to the next strategy.
 The pipeline stops on the first valid result. Attempts are tracked within a
 single run; page-level resume across runs remains unchanged (the `PageCache`).
+Cross-strategy resume — a fallback strategy only fetching what an earlier
+strategy missed — also relies on that page cache; with `--no-cache`, a
+fallback strategy re-downloads every page over the network instead of picking
+up where the previous strategy left off.
 
 ### Built-in strategies
 
@@ -173,7 +177,7 @@ export class MyStrategy {
     // Inject your scraping logic here. Must return:
     // - success: { status: "ok", data: { downloaded, total } }
     // - failure: { status: "failed", error: { code }, data: { downloaded, total, message } }
-    // Use ctx.session (Playwright), ctx.capture (ImageCapture), ctx.logger, etc.
+    // Use `session` (Playwright session), `capture` (shared ImageCapture), `logger`, etc.
   }
 }
 ```

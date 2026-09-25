@@ -63,3 +63,33 @@ test("chapter-aware: over-detected total → detects the jump, recovers, returns
   assert.ok(res.data.downloaded > 0, "keeps the pages captured before the jump");
   assert.equal(page.closed, true);
 });
+
+test("chapter-aware: zero pages captured, no jump → failed EMPTY_RESULT", async () => {
+  const { page, capture } = fakeReader({ total: 0, jumpAtPress: null });
+  const strat = new ChapterAwareStrategy({
+    openReader: async () => {},
+    navigateWithRetry: async () => {}
+  });
+  const res = await strat.execute({
+    session: { newPage: async () => page }, job: { url: page.url() }, config: { settle: 10, jitter: 0 },
+    capture, meter: { attach() {} }, logger: noopLogger
+  });
+  assert.equal(res.status, "failed");
+  assert.equal(res.error.code, "EMPTY_RESULT");
+});
+
+test("chapter-aware: zero pages captured AND a jump → failed NAVIGATION_JUMP", async () => {
+  const { page, capture } = fakeReader({ total: 0, jumpAtPress: 2 });
+  let recovered = false;
+  const strat = new ChapterAwareStrategy({
+    openReader: async () => {},
+    navigateWithRetry: async () => { recovered = true; }
+  });
+  const res = await strat.execute({
+    session: { newPage: async () => page }, job: { url: "https://batcave.biz/event/ultimate-marvel/394" },
+    config: { settle: 10, jitter: 0 }, capture, meter: { attach() {} }, logger: noopLogger
+  });
+  assert.equal(res.status, "failed");
+  assert.equal(res.error.code, "NAVIGATION_JUMP");
+  assert.equal(recovered, true, "recovery still runs even though nothing was captured");
+});

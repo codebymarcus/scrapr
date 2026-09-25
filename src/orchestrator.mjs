@@ -34,7 +34,7 @@ export class ScrapingOrchestrator {
         }
         const durationMs = Date.now() - t0;
 
-        let status, code, downloaded, total, missing = [];
+        let status, code, downloaded, total, missing = [], acceptedPartial;
         if (res.status === "failed") {
           status = "failed";
           code = res.error?.code ?? FailureCode.UNKNOWN_ERROR;
@@ -53,6 +53,7 @@ export class ScrapingOrchestrator {
           downloaded = v.downloaded;
           total = v.total;
           missing = v.missing || [];
+          acceptedPartial = v.acceptedPartial;
         }
         last = { downloaded, total };
         attempts.push({ name: strategy.name, attempt, status, code, downloaded, total, durationMs });
@@ -61,7 +62,7 @@ export class ScrapingOrchestrator {
 
         if (status === "success") {
           this.logger.success(`✓ completed using strategy: ${strategy.name}`);
-          return { status: "success", usedStrategy: strategy.name, downloaded, total, attempts };
+          return { status: "success", usedStrategy: strategy.name, downloaded, total, attempts, acceptedPartial };
         }
         // Retry the SAME strategy only for retryable transport failures.
         if (status === "failed" && isRetryable(code) && attempt < maxAttempts) continue;

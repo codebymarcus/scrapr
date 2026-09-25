@@ -106,6 +106,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     }
 
     // Convert & package (unchanged).
+    if (r.acceptedPartial) logger.warn(`accepting partial download: packaging ${r.downloaded}/${r.total || "?"} page(s) (--accept-partial)`);
     logger.step("→ converting & packaging");
     const outputs = await processor.process(capture.list());
     for (const packager of packagers) await packager.write(outputs, targets);

@@ -28,3 +28,21 @@ test("incomplete lists the missing pages", () => {
   assert.equal(v.code, "INCOMPLETE_RESULT");
   assert.deepEqual(v.missing, [3]);
 });
+
+test("incomplete rerun that produced no new pages beyond the seed is stagnant", () => {
+  const v = validate({ downloaded: 5, total: 10, seeded: 5, images: [] });
+  assert.equal(v.status, "incomplete");
+  assert.equal(v.stagnant, true);
+});
+
+test("incomplete rerun with no seed is not stagnant", () => {
+  const v = validate({ downloaded: 5, total: 10, seeded: 0, images: [] });
+  assert.equal(v.status, "incomplete");
+  assert.equal(v.stagnant, false);
+});
+
+test("--accept-partial accepts a stagnant rerun and reports acceptedPartial", () => {
+  const v = validate({ downloaded: 5, total: 10, seeded: 5, acceptPartial: true, images: [] });
+  assert.equal(v.status, "success");
+  assert.equal(v.acceptedPartial, true);
+});
