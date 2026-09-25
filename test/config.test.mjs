@@ -107,3 +107,14 @@ test("stripJsonComments: removes // and /* */ but not inside strings", () => {
   const parsed = JSON.parse(stripJsonComments(src));
   assert.deepEqual(parsed, { a: 1, b: "http://x//y", c: "/* not a comment */" });
 });
+
+test("strategies: defaults to null (→ default pipeline) when unset", () => {
+  const cfg = buildConfig({ _: ["https://x/read"] }, {});
+  assert.equal(cfg.strategies, null);
+});
+
+test("strategies: a config-file array is carried through verbatim", () => {
+  const arr = [{ name: "current", maxAttempts: 2 }, { name: "chapter-aware", enabled: false }];
+  const cfg = buildConfig({ _: ["https://x/read"] }, { strategies: arr });
+  assert.deepEqual(cfg.strategies, arr);
+});

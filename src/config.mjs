@@ -41,6 +41,8 @@ export const DEFAULTS = {
   advanceKey: "ArrowRight",
   countSelector: "img.reader__item, .reader img, #reader img",
   forcePages: null, settle: 700, jitter: 0.3, maxRetries: 4, rateLimitBase: 2000,
+  // ordered scraping strategy pipeline; null = default (current → chapter-aware)
+  strategies: null,
   navTimeout: 45000, itemDelay: 3000, headed: false,
   // capture filters
   minBytes: 20000, hostFilter: null, issuePrefix: null, allImages: false,
