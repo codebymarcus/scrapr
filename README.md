@@ -109,6 +109,92 @@ node scrape.mjs --list links.xlsx --drive-subfolder "Batch 2"   # override just 
 `scraper.config.json` is git-ignored (it holds your personal folder ids/paths);
 `scraper.config.example.json` is the tracked template.
 
+## Scraping strategies
+
+The scraper uses a pluggable multi-stage fallback pipeline: strategies run in
+order, each strategy retries itself for transient failures (up to `maxAttempts`),
+and when retries are exhausted the orchestrator falls back to the next strategy.
+The pipeline stops on the first valid result. Attempts are tracked within a
+single run; page-level resume across runs remains unchanged (the `PageCache`).
+
+### Built-in strategies
+
+**`current`** — The original headless keyboard-advance reader. Opens the URL past
+any JS gate, detects the page count from the reader's DOM elements, presses the
+advance key (`--advance-key`) through every page, and collects images as they
+load. This is the first strategy in the default pipeline.
+
+**`chapter-aware`** — A fallback for readers that auto-navigate to the next
+chapter when you press past the final page (e.g. batcave.biz). Avoids the
+over-detected page count that causes Stage 1 to loop forever by:
+- Using a longer settle period so the last page's image completes loading.
+- Never pressing past the known final page.
+- Detecting a URL change (chapter jump), navigating back, and stopping with
+  whatever pages it has.
+
+Since `chapter-aware` shares the same `ImageCapture`, it only picks up pages
+the first strategy missed — useful when `current` completes all but the final
+page on a auto-navigating reader.
+
+### Configuration
+
+The `strategies` config array defines the pipeline:
+
+```json
+{
+  "strategies": [
+    { "name": "current",       "enabled": true, "maxAttempts": 2 },
+    { "name": "chapter-aware", "enabled": true, "maxAttempts": 1 }
+  ]
+}
+```
+
+Keys:
+- `name` — Strategy name (`current`, `chapter-aware`, or a custom strategy).
+- `enabled` — Include in the pipeline: `true` (default) or `false` to skip.
+- `maxAttempts` — Retry count for this strategy (default: strategy-specific).
+
+**Defaults:** Omit the entire `strategies` key to use the pipeline above.
+**Single-strategy mode:** Set `"strategies": [{ "name": "current" }]` to restore
+single-strategy behaviour (no fallback).
+
+### Adding a custom strategy
+
+Create a new strategy file `src/strategies/<name>.mjs`:
+
+```javascript
+export class MyStrategy {
+  constructor() {
+    this.name = "my-strategy";           // the name used in config.strategies
+    this.defaultMaxAttempts = 2;         // fallback if maxAttempts is not set
+  }
+
+  async execute({ session, job, config, capture, meter, logger }) {
+    // Inject your scraping logic here. Must return:
+    // - success: { status: "ok", data: { downloaded, total } }
+    // - failure: { status: "failed", error: { code }, data: { downloaded, total, message } }
+    // Use ctx.session (Playwright), ctx.capture (ImageCapture), ctx.logger, etc.
+  }
+}
+```
+
+Then register it in `src/strategies/registry.mjs`:
+
+```javascript
+import { MyStrategy } from "./my-strategy.mjs";
+
+export const STRATEGY_FACTORIES = {
+  current: () => new BrowserKeyboardStrategy(),
+  "chapter-aware": () => new ChapterAwareStrategy(),
+  "my-strategy": () => new MyStrategy()   // add this line
+};
+```
+
+Your strategy is now available in `scraper.config.json`:
+```json
+{ "strategies": [{ "name": "my-strategy", "maxAttempts": 3 }] }
+```
+
 ## Batch mode: scrape a list of links from Excel
 
 Put your links in a spreadsheet and point the scraper at it. Both **Excel**
