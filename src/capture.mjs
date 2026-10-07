@@ -47,14 +47,19 @@ export class ImageCapture {
   async seedFromCache() {
     if (!this.cache) return 0;
     const entries = await this.cache.readAll();
+    let seeded = 0;
     for (const e of entries) {
+      // Skip a stale empty-buffer entry from an older run so it isn't re-counted
+      // as a page (and doesn't crash conversion); it will be re-fetched.
+      if (!e.buffer || e.buffer.length === 0) continue;
       this.images.set(e.url, { buffer: e.buffer, contentType: e.contentType, seq: e.seq });
       if (e.seq >= this._seq) this._seq = e.seq + 1;
+      seeded++;
     }
     if (!this.config.allImages && !this.config.issuePrefix && this.cache.issueDir) {
       this._issueDir = this.cache.issueDir;
     }
-    return entries.length;
+    return seeded;
   }
 
   get size() {
@@ -123,7 +128,15 @@ export class ImageCapture {
       }
 
       const body = await resp.body().catch(() => null);
-      if (!body) return;
+      // An empty (0-byte) body is a failed/aborted fetch, not a real page. Never
+      // capture it — even for a numbered page (which otherwise bypasses minBytes)
+      // — because it would be counted as a page and then crash image conversion
+      // ("Input Buffer is empty"). Dropping it leaves the page missing so a later
+      // pass or fallback strategy can re-fetch it.
+      if (!body || body.length === 0) {
+        if (body) this.logger.verbose?.(`skipped (empty image body): ${u}`);
+        return;
+      }
       this.logger.debug?.(`image response ${ct} ${kb(body.length)} ${u}`);
       // minBytes skips site chrome (icons, thumbnails, spinners). A URL that
       // matches the numbered-page pattern is a real page even when it's small,

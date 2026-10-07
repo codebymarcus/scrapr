@@ -19,6 +19,15 @@ test("pageNumberFromUrl: parses '<n>-<hash>.<ext>' page numbers", () => {
   assert.equal(pageNumberFromUrl("https://cdn.x/39131/12-deadbeef.webp?x=1"), 12);
 });
 
+test("process: fails the item when a page has an empty buffer (failed capture)", async () => {
+  const proc = new ImageProcessor({ format: "jpg", quality: 80, maxEdge: 2400 }, spyLogger());
+  const pages = [
+    { url: "https://cdn.x/1-a.jpg", seq: 0, contentType: "image/jpeg", buffer: Buffer.alloc(50) },
+    { url: "https://cdn.x/2-b.jpg", seq: 1, contentType: "image/jpeg", buffer: Buffer.alloc(0) }
+  ];
+  await assert.rejects(() => proc.process(pages), /page 2 .*empty/i);
+});
+
 test("pageNumberFromUrl: parses batcave '<ts>_<index>_<hash>.<ext>' (0-based → 1-based)", () => {
   assert.equal(pageNumberFromUrl("https://img.batcave.biz/img/30378/213188/1785660934_0000_9f7bcd.jpg"), 1);
   assert.equal(pageNumberFromUrl("https://img.batcave.biz/img/30378/213188/1785660940_0028_0e847c.jpg"), 29);

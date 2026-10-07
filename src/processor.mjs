@@ -123,12 +123,21 @@ export class ImageProcessor {
       const idx = e.page != null ? e.page : n;
       let buffer = e.buffer;
       let ext = this._extFor(e);
+      // An empty buffer is a failed capture (not a damaged source): packaging it
+      // would write a corrupt page while still reporting success. Fail the whole
+      // item instead, so it is retried / handled by a fallback rather than
+      // silently producing a broken download.
+      if (!buffer || buffer.length === 0) {
+        throw new Error(`page ${idx} has no image data (empty buffer); failing this item so it can be retried`);
+      }
       const alreadyWebp = fmt === "webp" && ext === "webp";
       if (fmt !== "keep" && !alreadyWebp) {
         try {
           const c = await this._convert(e.buffer, fmt);
           if (c) { buffer = c.buffer; ext = c.ext; }
         } catch (err) {
+          // A non-empty buffer that still won't decode is a genuinely damaged
+          // source — keep the original bytes rather than failing the whole item.
           this.logger.warn(`could not convert page ${idx} (${err?.message || err}); keeping original.`);
         }
       }
