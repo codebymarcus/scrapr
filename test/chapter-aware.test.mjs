@@ -110,3 +110,15 @@ test("maps a thrown error from openReader to a failed result", async () => {
   assert.equal(res.error.code, "TIMEOUT");
   assert.equal(page.closed, true);
 });
+
+test("chapter-aware: profile params override config at execute time", async () => {
+  let seenCfg;
+  const strat = new ChapterAwareStrategy({ params: { settle: 50 }, openReader: async (_p, _u, cfg) => { seenCfg = cfg; } });
+  strat.detectTotal = async () => 0; // short-circuit the page loop
+  const capture = fakeCapture();
+  await strat.execute({
+    session: { newPage: async () => fakePage() }, job: { url: "u" },
+    config: { settle: 3000, jitter: 0 }, capture, meter: { attach() {} }, logger: noopLogger
+  });
+  assert.equal(seenCfg.settle, 50, "param overrides config");
+});

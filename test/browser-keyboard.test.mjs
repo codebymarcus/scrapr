@@ -38,3 +38,21 @@ test("current: maps a thrown timeout to a failed result", async () => {
   assert.equal(res.error.code, "TIMEOUT");
   assert.equal(page.closed, true);
 });
+
+test("current: profile params override config at execute time", async () => {
+  let seenCfg;
+  const strat = new BrowserKeyboardStrategy({
+    params: { advanceKey: "ArrowDown", countSelector: ".x" },
+    openReader: async () => {},
+    ReaderDriver: class { constructor(_p, _c, cfg) { seenCfg = cfg; } async run() { return { total: 1 }; } }
+  });
+  const capture = { attach: async () => {}, size: 1, list: () => [] };
+  const page = { async close() {} };
+  await strat.execute({
+    session: { newPage: async () => page }, job: { url: "u" },
+    config: { advanceKey: "ArrowRight", settle: 700 }, capture, meter: { attach() {} }, logger: noopLogger
+  });
+  assert.equal(seenCfg.advanceKey, "ArrowDown", "param overrides config");
+  assert.equal(seenCfg.countSelector, ".x");
+  assert.equal(seenCfg.settle, 700, "non-overridden config is preserved");
+});

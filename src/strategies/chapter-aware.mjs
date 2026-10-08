@@ -36,19 +36,21 @@ export function imageDir(u) {
 }
 
 export class ChapterAwareStrategy {
-  constructor({ openReader = defaultOpenReader } = {}) {
+  constructor({ openReader = defaultOpenReader, params = {} } = {}) {
     this.name = "chapter-aware";
     this.defaultMaxAttempts = 1;
     this._openReader = openReader;
+    this.params = params;
   }
 
   async execute({ session, job, config, capture, meter, logger }) {
     const page = await session.newPage();
+    const cfg = { ...config, ...this.params };
     try {
       await capture.attach(page);
       meter?.attach?.(page);
-      await this._openReader(page, job.url, config, logger);
-      const total = await this._collect(page, capture, config, logger);
+      await this._openReader(page, job.url, cfg, logger);
+      const total = await this._collect(page, capture, cfg, logger);
       const downloaded = capture.size;
       if (!(downloaded > 0)) return failed(FailureCode.EMPTY_RESULT, "no pages captured");
       return ok({ downloaded, total });
