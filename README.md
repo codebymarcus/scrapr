@@ -201,11 +201,29 @@ pipeline is used.
 
 ### Content-agnostic seam
 
-Each profile defines its `contentType` — today only `"image"` is supported
-(image page captures with format conversion). A future content type `"text"`
-(HTML → Markdown extraction) will allow the same profile registry and mechanism
-interface to drive text-content scraping. Profiles are designed to be reusable
-across content types once that seam is implemented.
+Each profile defines its `contentType`: `"image"` (page captures with format
+conversion; the default) or `"text"` (HTML → Markdown extraction). The same
+profile registry drives both.
+
+### Text scraping
+
+Scrape an article/blog URL to a Markdown file instead of images:
+
+```
+node scrape.mjs https://example.com/article --text --out article
+```
+
+- `--text` (or `"text": true` in the config) forces text mode for every URL;
+  `--text-name` overrides the output file name. Alternatively, give a site
+  profile `contentType: "text"` (and optionally `text: { selector: "article.post" }`
+  to pick the content container).
+- Output is a single `.md` file with YAML frontmatter (title, source, date)
+  followed by the Markdown body.
+- Extraction uses the profile's selector if set, otherwise Mozilla Readability
+  on the rendered page (falling back to `<body>`), converted to Markdown with
+  turndown.
+- Text jobs share the batch loop's status column, circuit breaker, and
+  `--dry-run` preview with image jobs.
 
 ## Batch mode: scrape a list of links from Excel
 
