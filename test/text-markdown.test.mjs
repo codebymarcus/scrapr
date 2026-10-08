@@ -33,3 +33,12 @@ test("buildMarkdownDoc: no fields → no frontmatter, just body", () => {
   assert.doesNotMatch(doc, /^---/);
   assert.match(doc, /Only body\./);
 });
+
+test("buildMarkdownDoc: newline in title/excerpt stays a single-line YAML scalar", () => {
+  const doc = buildMarkdownDoc({ title: "Line one\nLine two", excerpt: "a\n\nb", source: "https://x/1", markdown: "Body." });
+  // the title frontmatter value is on ONE physical line (no raw newline inside the quotes)
+  assert.match(doc, /^title: "Line one Line two"$/m);
+  assert.match(doc, /^excerpt: "a b"$/m);
+  // frontmatter block is well-formed: opens and closes with ---
+  assert.match(doc, /^---\n(?:[^\n]*\n)+---\n/);
+});

@@ -28,7 +28,7 @@ export function htmlToMarkdown(html) {
 // Assemble the final .md: YAML frontmatter (present fields only) + an H1 title +
 // the Markdown body. String values are quoted and escaped for YAML.
 export function buildMarkdownDoc({ title, source, date, byline, excerpt, markdown } = {}) {
-  const q = (s) => `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  const q = (s) => `"${String(s).replace(/\s+/g, " ").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
   const fm = [];
   if (title) fm.push(`title: ${q(title)}`);
   if (source) fm.push(`source: ${q(source)}`);

@@ -38,6 +38,7 @@ test("scrapeText: empty extraction → EMPTY_RESULT failure (no file)", async ()
   const r = await scrapeText(fakeSession(page), { url: "https://x/a", name: null }, { listFile: null, out: "/tmp/does-not-exist-scaper/none" }, noopLogger, {}, deps);
   assert.equal(r.ok, false);
   assert.equal(r.attempts[0].code, "EMPTY_RESULT");
+  assert.equal(r.error, undefined);
   assert.equal(page.closed, true);
 });
 
@@ -47,5 +48,6 @@ test("scrapeText: a thrown openReader → failed result with mapped code, page c
   const r = await scrapeText(fakeSession(page), { url: "https://x/a", name: null }, { listFile: null, out: "/tmp/none" }, noopLogger, {}, deps);
   assert.equal(r.ok, false);
   assert.equal(r.attempts[0].code, "NETWORK_ERROR");
+  assert.equal(r.error, undefined);
   assert.equal(page.closed, true);
 });
