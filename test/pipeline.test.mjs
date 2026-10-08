@@ -211,3 +211,29 @@ test("_runJobs: a throwing profile resolution marks the row retry and continues 
   assert.equal(results[0].ok, false);
   assert.match(results[0].error, /boom/);
 });
+
+test("scrapeJob: passes profile into the orchestrator ctx", async () => {
+  let ctxProfile;
+  const config = { cache: false, cleanup: false, drive: false, out: "out", costPerGb: null };
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const orchestrator = { run: async (ctx) => { ctxProfile = ctx.profile; return { status: "success", usedStrategy: "current", downloaded: 1, total: 1, attempts: [], metadata: null }; } };
+  const profile = { name: "batcave", contentType: "image", metadata: { title: /x/ } };
+  await scrapeJob({}, { url: "https://x/read" }, config, processor, [{ write: async () => {} }], null, noopLogger, orchestrator, profile);
+  assert.equal(ctxProfile, profile);
+});
+
+test("scrapeJob: passes normalized metadata to the packager and auto-names from the title", async () => {
+  let seenMeta, seenTargets;
+  const config = { listFile: "l.csv", cache: false, cleanup: false, drive: false, out: "downloads", costPerGb: null };
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const packagers = [{ write: async (_o, targets, metadata) => { seenTargets = targets; seenMeta = metadata; } }];
+  const orchestrator = { run: async () => ({ status: "success", usedStrategy: "current", downloaded: 29, total: 29, attempts: [], metadata: { title: "Ultimate Hulk Annual", count: 29 } }) };
+  const r = await scrapeJob({}, { url: "https://x/read", name: null }, config, processor, packagers, null, noopLogger, orchestrator, { name: "batcave", contentType: "image", metadata: {} });
+  assert.equal(r.complete, true);
+  assert.equal(seenMeta.series, "Ultimate Hulk Annual");
+  assert.equal(seenMeta.title, "Ultimate Hulk Annual");
+  assert.equal(seenMeta.pageCount, 29);
+  assert.equal(seenMeta.web, "https://x/read");
+  const path = (await import("node:path")).default;
+  assert.equal(seenTargets.cbzPath, path.join("downloads", "Ultimate Hulk Annual.cbz"));
+});

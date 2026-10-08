@@ -94,7 +94,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     // retrying a strategy for transient failures and falling back to the next.
     // All strategies share `capture` (and its PageCache), so a fallback only
     // fetches what earlier stages missed.
-    const r = await orchestrator.run({ session, job, config, capture, meter, seeded });
+    const r = await orchestrator.run({ session, job, config, capture, meter, seeded, profile });
     const contentType = profile?.contentType || "image";
     if (cache && r.total) { cache.total = r.total; await cache.saveIndex().catch(() => {}); }
 
@@ -108,11 +108,20 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
 
     if (contentType !== "image") throw new Error(`unsupported contentType "${contentType}" (text output is a future content type)`);
 
-    // Convert & package (unchanged).
+    // Normalize metadata for packaging + naming (best-effort; fields may be null).
+    const md = r.metadata || {};
+    const metadata = { series: md.title ?? null, title: md.title ?? null, pageCount: r.total ?? null, web: job.url };
+    if (Number.isFinite(md.count) && Number.isFinite(r.total) && md.count !== r.total) {
+      logger.verbose?.(`metadata page count ${md.count} differs from scraped total ${r.total}`);
+    }
+    // Final output targets: auto-name from the title when the job has no explicit name.
+    const finalTargets = resolveTargets(config, job, { outputName: md.title || undefined });
+
+    // Convert & package.
     if (r.acceptedPartial) logger.warn(`accepting partial download: packaging ${r.downloaded}/${r.total || "?"} page(s) (--accept-partial)`);
     logger.step("→ converting & packaging");
     const outputs = await processor.process(capture.list());
-    for (const packager of packagers) await packager.write(outputs, targets);
+    for (const packager of packagers) await packager.write(outputs, finalTargets, metadata);
 
     // Upload to Drive; a failed upload → retry, keep local files (unchanged).
     let uploaded = false;
@@ -124,8 +133,8 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
       } else {
         logger.step("→ uploading to Drive");
         try {
-          if (uploadCbz) await uploader.uploadFile(targets.cbzPath);
-          if (uploadPdf) await uploader.uploadFile(targets.pdfPath);
+          if (uploadCbz) await uploader.uploadFile(finalTargets.cbzPath);
+          if (uploadPdf) await uploader.uploadFile(finalTargets.pdfPath);
           uploaded = true;
         } catch (e) {
           logger.error(`Drive upload failed: ${e?.message || e}`);
@@ -136,7 +145,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
 
     // Clean up local files only when there is a safe copy elsewhere (unchanged).
     if (config.cleanup) {
-      if (uploaded) { logger.step("→ cleaning up local files"); await removeJobArtifacts(targets, logger); }
+      if (uploaded) { logger.step("→ cleaning up local files"); await removeJobArtifacts(finalTargets, logger); }
       else if (!uploader) logger.warn("cleanup skipped: no --drive, refusing to delete the only local copy");
     }
 
