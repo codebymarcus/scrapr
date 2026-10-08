@@ -97,3 +97,17 @@ test("a strategy that throws is caught and treated as a failed attempt", async (
   assert.equal(r.attempts[0].status, "failed");
   assert.equal(r.usedStrategy, "B");
 });
+
+test("success result carries the winning strategy's metadata", async () => {
+  const A = fakeStrategy("A", [ok({ downloaded: 10, total: 10, metadata: { title: "Hulk", count: 10 } })]);
+  const r = await run([{ strategy: A, maxAttempts: 1 }]);
+  assert.equal(r.status, "success");
+  assert.deepEqual(r.metadata, { title: "Hulk", count: 10 });
+});
+
+test("success result metadata is null when the strategy provided none", async () => {
+  const A = fakeStrategy("A", [ok({ downloaded: 10, total: 10 })]);
+  const r = await run([{ strategy: A, maxAttempts: 1 }]);
+  assert.equal(r.status, "success");
+  assert.equal(r.metadata, null);
+});
