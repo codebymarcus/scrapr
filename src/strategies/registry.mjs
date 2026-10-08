@@ -8,6 +8,13 @@ export const STRATEGY_FACTORIES = {
   "chapter-aware": () => new ChapterAwareStrategy()
 };
 
+// Mechanism factories: name → (params) => strategy. A profile's pipeline names
+// these; `params` are per-site overrides merged over config at execute time.
+export const MECHANISMS = {
+  current: (params = {}) => new BrowserKeyboardStrategy({ params }),
+  "chapter-aware": (params = {}) => new ChapterAwareStrategy({ params })
+};
+
 // Default pipeline when config.strategies is omitted: today's behaviour as
 // Stage 1, then the chapter-aware fallback.
 export const DEFAULT_PIPELINE = [
