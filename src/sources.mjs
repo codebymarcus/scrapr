@@ -1,5 +1,5 @@
 // Job sources: where the list of links comes from. Both implement the same
-// interface — `load()` → jobs, `hasStatus`, `setStatus(job, value)` — so the
+// interface — `load()` → jobs, `hasStatus`, `setStatus(job, value)`, `setReason(job, text)` — so the
 // runner treats a single URL and a spreadsheet identically.
 import xlsx from "xlsx";
 import { existsSync, writeFileSync } from "node:fs";
@@ -14,6 +14,7 @@ export class UrlSource {
     return [{ url: this.url, name: null, status: "", row: -1 }];
   }
   setStatus() {}
+  setReason() {}
 }
 
 // A .xlsx/.xls/.csv/.tsv of links. Uses a header row with a url/link column
@@ -29,6 +30,7 @@ export class SheetSource {
     this._wb = null;
     this._ws = null;
     this._statusCol = -1;
+    this._reasonCol = -1;
   }
 
   async load() {
@@ -70,6 +72,15 @@ export class SheetSource {
     this._statusCol = statusCol;
     this.hasStatus = true;
 
+    let reasonCol = find(["reason", "error", "note"]);
+    if (reasonCol === -1) {
+      reasonCol = range.e.c + 1; // append a reason column and grow the range
+      ws[xlsx.utils.encode_cell({ r: hr, c: reasonCol })] = { t: "s", v: "reason" };
+      range.e.c = reasonCol;
+      ws["!ref"] = xlsx.utils.encode_range(range);
+    }
+    this._reasonCol = reasonCol;
+
     const jobs = [];
     for (let r = hr + 1; r <= range.e.r; r++) {
       const link = String(cell(r, urlCol) ?? "").trim();
@@ -81,20 +92,29 @@ export class SheetSource {
     return jobs;
   }
 
-  setStatus(job, value) {
-    if (!this.hasStatus || job.row < 0) return;
-    this._ws[xlsx.utils.encode_cell({ r: job.row, c: this._statusCol })] = { t: "s", v: value };
+  _save() {
     try {
       if (this._isText) {
-        // Write plain text ourselves (no UTF-8 BOM; tab delimiter for .tsv).
         const FS = /\.tsv$/i.test(this.file) ? "\t" : ",";
         writeFileSync(this.file, xlsx.utils.sheet_to_csv(this._ws, { FS }));
       } else {
         xlsx.writeFile(this._wb, this.file);
       }
     } catch (e) {
-      this.logger?.warn(`couldn't write status back to ${this.file} (${e.message}). Is it open in Excel?`);
+      this.logger?.warn(`couldn't write back to ${this.file} (${e.message}). Is it open in Excel?`);
     }
+  }
+
+  setStatus(job, value) {
+    if (!this.hasStatus || job.row < 0) return;
+    this._ws[xlsx.utils.encode_cell({ r: job.row, c: this._statusCol })] = { t: "s", v: value };
+    this._save();
+  }
+
+  setReason(job, text) {
+    if (!this.hasStatus || job.row < 0 || this._reasonCol < 0) return;
+    this._ws[xlsx.utils.encode_cell({ r: job.row, c: this._reasonCol })] = { t: "s", v: String(text ?? "") };
+    this._save();
   }
 }
 

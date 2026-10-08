@@ -74,3 +74,43 @@ test("SheetSource: skips rows without a valid http(s) url", async () => {
     assert.equal(jobs[0].url, "https://x/1");
   });
 });
+
+test("SheetSource: appends a reason column and setReason writes it", async () => {
+  await withTempCsv("url,name\nhttps://x/1,Issue 1\n", async (file) => {
+    const src = new SheetSource(file);
+    const jobs = await src.load();
+    src.setReason(jobs[0], "BLOCKED");
+    const text = await readFile(file, "utf8");
+    assert.match(text.split("\n")[0], /reason/, "reason header present");
+    assert.match(text, /BLOCKED/);
+  });
+});
+
+test("SheetSource: an existing reason column is reused, not duplicated", async () => {
+  await withTempCsv("url,status,reason\nhttps://x/1,,\n", async (file) => {
+    const src = new SheetSource(file);
+    const jobs = await src.load();
+    src.setReason(jobs[0], "RATE_LIMITED");
+    const text = await readFile(file, "utf8");
+    const header = text.split("\n")[0];
+    assert.equal(header.match(/reason/g)?.length, 1, "only one reason column");
+    assert.match(text, /RATE_LIMITED/);
+  });
+});
+
+test("SheetSource: setStatus still works and is independent of reason", async () => {
+  await withTempCsv("url,name\nhttps://x/1,Issue 1\n", async (file) => {
+    const src = new SheetSource(file);
+    const jobs = await src.load();
+    src.setStatus(jobs[0], "done");
+    src.setReason(jobs[0], "");
+    const text = await readFile(file, "utf8");
+    assert.match(text, /done/);
+  });
+});
+
+test("UrlSource: setReason is a no-op (does not throw)", async () => {
+  const src = new UrlSource("https://x/read");
+  await src.load();
+  assert.doesNotThrow(() => src.setReason({ row: -1 }, "X"));
+});
