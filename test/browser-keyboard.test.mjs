@@ -22,7 +22,8 @@ test("current: returns ok with the captured counts", async () => {
   });
   const res = await strat.execute(fakeCtx(capture, page));
   assert.equal(res.status, "success");
-  assert.deepEqual(res.data, { downloaded: 40, total: 40 });
+  assert.equal(res.data.downloaded, 40);
+  assert.equal(res.data.total, 40);
   assert.equal(page.closed, true, "page is always closed");
 });
 
@@ -55,4 +56,38 @@ test("current: profile params override config at execute time", async () => {
   assert.equal(seenCfg.advanceKey, "ArrowDown", "param overrides config");
   assert.equal(seenCfg.countSelector, ".x");
   assert.equal(seenCfg.settle, 700, "non-overridden config is preserved");
+});
+
+test("current: returns extracted metadata in the success result", async () => {
+  const page = fakePage();
+  const capture = { attach: async () => {}, size: 3, list: () => [] };
+  const strat = new BrowserKeyboardStrategy({
+    openReader: async () => {},
+    ReaderDriver: class { async run() { return { total: 3 }; } },
+    extractMetadata: async (_page, patterns) => ({ title: patterns?.title ? "Hulk" : null, count: 3 })
+  });
+  const res = await strat.execute({
+    session: { newPage: async () => page }, job: { url: "u" }, config: {},
+    capture, meter: { attach() {} }, logger: noopLogger, profile: { metadata: { title: /x/ } }
+  });
+  assert.equal(res.status, "success");
+  assert.equal(res.data.downloaded, 3);
+  assert.equal(res.data.total, 3);
+  assert.deepEqual(res.data.metadata, { title: "Hulk", count: 3 });
+});
+
+test("current: a throwing extractMetadata still succeeds (metadata nulled)", async () => {
+  const page = fakePage();
+  const capture = { attach: async () => {}, size: 2, list: () => [] };
+  const strat = new BrowserKeyboardStrategy({
+    openReader: async () => {},
+    ReaderDriver: class { async run() { return { total: 2 }; } },
+    extractMetadata: async () => { throw new Error("boom"); }
+  });
+  const res = await strat.execute({
+    session: { newPage: async () => page }, job: { url: "u" }, config: {},
+    capture, meter: { attach() {} }, logger: noopLogger, profile: { metadata: {} }
+  });
+  assert.equal(res.status, "success");
+  assert.deepEqual(res.data.metadata, { title: null, count: null });
 });

@@ -22,6 +22,7 @@
 import { openReader as defaultOpenReader } from "../navigation.mjs";
 import { sleep, withJitter } from "../time.mjs";
 import { ok, failed, mapError, FailureCode } from "./strategy.mjs";
+import { extractMetadata as defaultExtractMetadata } from "../metadata.mjs";
 
 // The reader's page-image elements (same selector family as the count selector).
 const READER_IMG_SEL = "img.reader__item, .reader img, #reader img";
@@ -36,14 +37,15 @@ export function imageDir(u) {
 }
 
 export class ChapterAwareStrategy {
-  constructor({ openReader = defaultOpenReader, params = {} } = {}) {
+  constructor({ openReader = defaultOpenReader, params = {}, extractMetadata = defaultExtractMetadata } = {}) {
     this.name = "chapter-aware";
     this.defaultMaxAttempts = 1;
     this._openReader = openReader;
     this.params = params;
+    this.extractMetadata = extractMetadata;
   }
 
-  async execute({ session, job, config, capture, meter, logger }) {
+  async execute({ session, job, config, capture, meter, logger, profile }) {
     const page = await session.newPage();
     const cfg = { ...config, ...this.params };
     try {
@@ -53,7 +55,8 @@ export class ChapterAwareStrategy {
       const total = await this._collect(page, capture, cfg, logger);
       const downloaded = capture.size;
       if (!(downloaded > 0)) return failed(FailureCode.EMPTY_RESULT, "no pages captured");
-      return ok({ downloaded, total });
+      const metadata = await this.extractMetadata(page, profile?.metadata || {}).catch(() => ({ title: null, count: null }));
+      return ok({ downloaded, total, metadata });
     } catch (e) {
       return failed(mapError(e), e?.message);
     } finally {

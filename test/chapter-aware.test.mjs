@@ -68,7 +68,8 @@ test("addresses every page by fragment and completes", async () => {
   const s = strategyFor(capture, { total: 5, visited });
   const res = await s.execute(ctxFor(capture, page));
   assert.equal(res.status, "success");
-  assert.deepEqual(res.data, { downloaded: 5, total: 5 });
+  assert.equal(res.data.downloaded, 5);
+  assert.equal(res.data.total, 5);
   assert.deepEqual(visited, [1, 2, 3, 4, 5], "visited pages 1..N in order");
   assert.equal(page.closed, true);
 });
@@ -121,4 +122,14 @@ test("chapter-aware: profile params override config at execute time", async () =
     config: { settle: 3000, jitter: 0 }, capture, meter: { attach() {} }, logger: noopLogger
   });
   assert.equal(seenCfg.settle, 50, "param overrides config");
+});
+
+test("chapter-aware: returns extracted metadata in the success result", async () => {
+  const capture = fakeCapture();
+  const visited = [];
+  const s = strategyFor(capture, { total: 2, visited });
+  s.extractMetadata = async () => ({ title: "Hulk", count: 2 });
+  const res = await s.execute({ ...ctxFor(capture, fakePage()), profile: { metadata: {} } });
+  assert.equal(res.status, "success");
+  assert.deepEqual(res.data.metadata, { title: "Hulk", count: 2 });
 });
