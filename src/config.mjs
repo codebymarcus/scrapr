@@ -41,7 +41,9 @@ export const DEFAULTS = {
   advanceKey: "ArrowRight",
   countSelector: "img.reader__item, .reader img, #reader img",
   forcePages: null, settle: 700, jitter: 0.3, maxRetries: 4, rateLimitBase: 2000,
-  // ordered scraping strategy pipeline; null = default (current → chapter-aware)
+  // Per-site profiles choose the scraping pipeline by URL (see src/profiles/).
+  // Set `strategies` to OVERRIDE the profile pipeline globally (array of
+  // { name, maxAttempts?, enabled? }); null = use the matched profile.
   strategies: null,
   navTimeout: 45000, itemDelay: 3000, headed: false,
   // capture filters

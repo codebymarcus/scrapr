@@ -18,7 +18,7 @@ import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
-import { resolveStrategies } from "./strategies/registry.mjs";
+import { resolveProfile, resolvePipeline } from "./profiles/registry.mjs";
 import { validate } from "./result-validator.mjs";
 export { decideOutcome } from "./outcome.mjs";
 
@@ -80,7 +80,7 @@ async function removeJobArtifacts(targets, logger) {
 //   acquire (via the strategy orchestrator) → convert/package → upload →
 //   clean up local files + cache.
 // Returns { saved, total, complete, usedStrategy, attempts }.
-export async function scrapeJob(session, job, config, processor, packagers, uploader, logger, orchestrator) {
+export async function scrapeJob(session, job, config, processor, packagers, uploader, logger, orchestrator, profile) {
   const targets = resolveTargets(config, job);
   if (config.clearCache) await clearJobCache(targets.cacheDir, logger);
   const cache = config.cache ? await PageCache.open(targets.cacheDir) : null;
@@ -95,6 +95,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     // All strategies share `capture` (and its PageCache), so a fallback only
     // fetches what earlier stages missed.
     const r = await orchestrator.run({ session, job, config, capture, meter, seeded });
+    const contentType = profile?.contentType || "image";
     if (cache && r.total) { cache.total = r.total; await cache.saveIndex().catch(() => {}); }
 
     if (r.status !== "success") {
@@ -102,8 +103,10 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
         logger.error("No images captured. Try --headed to watch, or set --count-selector / --advance-key / --host.");
       }
       return { saved: r.downloaded ?? capture.size, total: r.total, complete: false,
-               bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
+               bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
     }
+
+    if (contentType !== "image") throw new Error(`unsupported contentType "${contentType}" (text output is a future content type)`);
 
     // Convert & package (unchanged).
     if (r.acceptedPartial) logger.warn(`accepting partial download: packaging ${r.downloaded}/${r.total || "?"} page(s) (--accept-partial)`);
@@ -126,7 +129,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
           uploaded = true;
         } catch (e) {
           logger.error(`Drive upload failed: ${e?.message || e}`);
-          return { saved: outputs.length, total: r.total, complete: false, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
+          return { saved: outputs.length, total: r.total, complete: false, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
         }
       }
     }
@@ -138,7 +141,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     }
 
     if (cache) await cache.clear().catch(() => {});
-    return { saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts };
+    return { saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
   } finally {
     logger.info(`bandwidth: ${meter.summary(config.costPerGb)}`);
   }
@@ -151,7 +154,8 @@ export class BatchRunner {
     this._stopping = false;
     // Injectable so the batch loop can be unit-tested without a real browser.
     this._scrapeJob = deps.scrapeJob || scrapeJob;
-    this._resolveStrategies = deps.resolveStrategies || resolveStrategies;
+    this._resolveProfile = deps.resolveProfile || resolveProfile;
+    this._resolvePipeline = deps.resolvePipeline || resolvePipeline;
     this._validate = deps.validate || validate;
   }
 
@@ -182,13 +186,6 @@ export class BatchRunner {
     const processor = new ImageProcessor(this.config, this.logger);
     const packagers = buildPackagers(this.config, this.logger);
 
-    const strategies = this._resolveStrategies(this.config, this.logger);
-    if (!strategies.length) {
-      this.logger.error("no scraping strategies enabled — check the `strategies` config.");
-      return 1;
-    }
-    const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
-
     // Set up Drive upload before scraping so a misconfiguration fails fast.
     let uploader = null;
     if (this.config.drive) {
@@ -218,7 +215,7 @@ export class BatchRunner {
 
     let results;
     try {
-      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader, orchestrator });
+      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader });
     } finally {
       process.removeListener("SIGINT", onSigint);
       await session.close();
@@ -229,7 +226,7 @@ export class BatchRunner {
 
   // Iterate the jobs, honouring the status column and the stop flag. Extracted
   // from run() so it can be tested with an injected job runner and no browser.
-  async _runJobs({ jobs, source, session, processor, packagers, uploader, orchestrator }) {
+  async _runJobs({ jobs, source, session, processor, packagers, uploader }) {
     const results = [];
     let scrapedAny = false;
     for (let i = 0; i < jobs.length; i++) {
@@ -255,14 +252,24 @@ export class BatchRunner {
 
       if (jobs.length > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
+      const profile = this._resolveProfile(job.url);
+      const strategies = this._resolvePipeline(profile, this.config, this.logger);
+      this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
+
       let complete = false;
-      try {
-        const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator);
-        complete = r.complete;
-        results.push({ ...job, ...r, ok: complete });
-      } catch (e) {
-        this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
-        results.push({ ...job, saved: 0, ok: false, error: String(e?.message || e) });
+      if (!strategies.length) {
+        this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
+        results.push({ ...job, saved: 0, ok: false, error: "no mechanisms resolved" });
+      } else {
+        const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
+        try {
+          const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
+          complete = r.complete;
+          results.push({ ...job, ...r, ok: complete });
+        } catch (e) {
+          this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
+          results.push({ ...job, saved: 0, ok: false, error: String(e?.message || e) });
+        }
       }
 
       // Persist outcome immediately so an interrupted batch is resumable.

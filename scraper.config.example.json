@@ -37,7 +37,10 @@
   "logFile": null,             // write a full timestamped trace of every level to this path (e.g. "run.log").
   "costPerGb": null,           // estimate metered-proxy cost: report data volume, plus a ~$ estimate at this per-GB rate (e.g. 4).
 
-  // --- Scraping strategies (ordered fallback pipeline; omit to use the default) ---
+  // --- Scraping strategies (OVERRIDE; optional) ---
+  // By default the pipeline is chosen per-site by a profile (batcave → hash
+  // addressing; everything else → keyboard advance). Set this to force a
+  // specific pipeline for ALL links instead. Omit to use the per-site profile.
   "strategies": [
     { "name": "current",       "enabled": true, "maxAttempts": 2 },
     { "name": "chapter-aware", "enabled": true, "maxAttempts": 1 }

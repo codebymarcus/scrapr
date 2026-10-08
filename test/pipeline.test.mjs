@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { skipReason, describeDryRun, decideOutcome, BatchRunner, scrapeJob } from "../src/pipeline.mjs";
 
 const noopLogger = {
-  info() {}, warn() {}, muted() {}, success() {}, error() {}, step() {}, section() {}, progressBar() {}
+  info() {}, warn() {}, muted() {}, verbose() {}, success() {}, error() {}, step() {}, section() {}, progressBar() {}
 };
 
 test("skipReason: only blank and retry are crawled", () => {
@@ -150,4 +150,47 @@ test("scrapeJob: on orchestrator failure, returns incomplete and does not packag
   assert.equal(r.complete, false);
   assert.equal(r.saved, 39);
   assert.equal(calls.process, 0, "no packaging on failure");
+});
+
+test("_runJobs: resolves the profile per job and builds the right pipeline", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const seen = [];
+  runner._resolveProfile = (url) => (url.includes("batcave") ? { name: "batcave", contentType: "image" } : { name: "generic", contentType: "image" });
+  runner._resolvePipeline = (profile) => [{ strategy: { name: profile.name === "batcave" ? "chapter-aware" : "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (session, job, config, processor, packagers, uploader, logger, orchestrator, profile) => {
+    seen.push({ url: job.url, profile: profile.name, mech: orchestrator.strategies[0].strategy.name });
+    return { saved: 1, total: 1, complete: true, contentType: profile.contentType };
+  };
+  const source = { hasStatus: false, setStatus() {} };
+  const jobs = [{ url: "https://batcave.biz/event/x/1", status: "" }, { url: "https://other.example/x", status: "" }];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.deepEqual(seen, [
+    { url: "https://batcave.biz/event/x/1", profile: "batcave", mech: "chapter-aware" },
+    { url: "https://other.example/x", profile: "generic", mech: "current" }
+  ]);
+});
+
+test("_runJobs: an empty pipeline marks the row retry and continues the batch", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const statuses = {};
+  const ran = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = (profile) => (profile.name === "generic" ? [] : [{ strategy: { name: "current" }, maxAttempts: 1 }]);
+  runner._scrapeJob = async (s, job) => { ran.push(job.url); return { saved: 1, total: 1, complete: true }; };
+  const source = { hasStatus: true, setStatus: (job, v) => { statuses[job.url] = v; } };
+  const jobs = [{ url: "https://a/1", status: "", row: 1 }, { url: "https://b/2", status: "", row: 2 }];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.deepEqual(ran, [], "scrapeJob not called when no mechanisms resolve");
+  assert.equal(statuses["https://a/1"], "retry");
+  assert.equal(statuses["https://b/2"], "retry", "batch continued to the second row");
+});
+
+test("scrapeJob: threads the profile's contentType onto the result", async () => {
+  const config = { cache: false, cleanup: false, drive: false, out: "out", costPerGb: null };
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const packagers = [{ write: async () => {} }];
+  const orchestrator = { run: async () => ({ status: "success", usedStrategy: "current", downloaded: 1, total: 1, attempts: [] }) };
+  const r = await scrapeJob({}, { url: "https://x/read" }, config, processor, packagers, null, noopLogger, orchestrator, { name: "generic", contentType: "image" });
+  assert.equal(r.complete, true);
+  assert.equal(r.contentType, "image");
 });
