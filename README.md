@@ -135,7 +135,7 @@ Pipeline: `[chapter-aware]` (one attempt).
 - Detects page count from the reader's DOM.
 - Presses `--advance-key` through every page, collecting images as they load.
 
-Pipeline: `[current]` (2 attempts), then `[chapter-aware]` (1 attempt) as a fallback.
+Pipeline: `[current]` (2 attempts).
 
 ### Pipeline configuration
 
