@@ -65,7 +65,9 @@ scrapeJob (has `profile` from the site-profiles work)
 ```
 
 Metadata is **best-effort**: any extraction failure yields `{title:null,count:null}`
-and never fails a job; ComicInfo.xml is omitted when there is no usable metadata;
+and never fails a job; because the pipeline always supplies `PageCount` (the
+scraped total) and `Web` (the source URL), a ComicInfo.xml is still written for
+every successful CBZ (Series/Title are added when a title is extracted);
 auto-naming falls back to the slug. The critical download path is unchanged.
 
 ---
@@ -210,8 +212,11 @@ exists. Otherwise they are identical to today.
   on any failure; never throws.
 - A strategy's metadata call is itself guarded (a metadata error must not fail an
   otherwise-successful acquisition): wrap the call so a throw yields `null`.
-- `buildComicInfoXml` returns `null` when no usable fields → CbzPackager writes no
-  ComicInfo.xml.
+- `buildComicInfoXml` itself returns `null` for a fully-empty object (packager-level
+  contract → CbzPackager writes no ComicInfo.xml). In the real pipeline, however,
+  `scrapeJob` always supplies `pageCount` and `web`, so a ComicInfo.xml is written
+  for every successful CBZ, with any empty field (e.g. Series/Title when no title
+  was extracted) omitted.
 - Auto-naming: a null/empty title → output name falls back to the slug (current
   behaviour).
 
@@ -232,7 +237,8 @@ New — `test/metadata.test.mjs`:
 Edited:
 - `test/packagers.test.mjs` (or new if absent): `CbzPackager.write(…, metadata)`
   produces a zip containing a `ComicInfo.xml` entry with the expected fields; and
-  writes **no** `ComicInfo.xml` when metadata is empty. `PdfPackager` sets the
+  writes **no** `ComicInfo.xml` when metadata is an empty object (the
+  `buildComicInfoXml` unit contract). `PdfPackager` sets the
   title (assert via pdf-lib `getTitle()` on the written bytes).
 - `test/naming.test.mjs` (or new): explicit `job.name` wins over `outputName`;
   `outputName` used when no `job.name` (batch); `cacheDir` identical regardless of
@@ -277,8 +283,9 @@ test/chapter-aware.test.mjs      EDIT
 
 ## 11. Acceptance criteria
 
-- Scraped CBZs contain a `ComicInfo.xml` with Series/Title/PageCount/Web when
-  metadata is available; PDFs have their document title set.
+- Every successful scraped CBZ contains a `ComicInfo.xml` (always PageCount and
+  Web; Series/Title when a title is extracted, empty fields omitted); PDFs have
+  their document title set when a title is available.
 - Metadata is extracted via the profile's patterns, falling back to
   `og:title`/`<title>`; batcave yields the chapter title + page count.
 - Output folders/archives auto-name from the title when no explicit `job.name`;

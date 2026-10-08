@@ -25,7 +25,7 @@
 
 - **`page.evaluate` throws during extraction** (fake page without `evaluate`, or a real failure) → `extractMetadata` returns `{title:null,count:null}`, never throws (Task 1).
 - **Title/series with XML metacharacters** (`& < > " '`) → `buildComicInfoXml` escapes them so the CBZ's ComicInfo.xml stays well-formed (Task 1).
-- **No usable metadata** → CBZ writes no `ComicInfo.xml` and PDF title is left default; no crash (Task 4).
+- **No extracted title** → `scrapeJob` still supplies `pageCount` (scraped total) and `web` (source URL), so a ComicInfo.xml (PageCount + Web, no Series/Title) is written for every successful CBZ; the PDF title is left default; no crash (Task 4). `buildComicInfoXml` itself still returns `null` for a fully-empty object, and `CbzPackager` then writes no ComicInfo.xml (packager-level unit contract).
 - **Auto-naming must not disturb resume** → `cacheDir` is identical whether or not an `outputName` override is given (Task 5).
 - **Metadata extraction failing inside a strategy** → the otherwise-successful acquisition still returns success with `metadata` null-ish, not a failed job (Task 2).
 

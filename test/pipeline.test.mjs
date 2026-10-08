@@ -237,3 +237,17 @@ test("scrapeJob: passes normalized metadata to the packager and auto-names from 
   const path = (await import("node:path")).default;
   assert.equal(seenTargets.cbzPath, path.join("downloads", "Ultimate Hulk Annual.cbz"));
 });
+
+test("scrapeJob: with no extracted title, still passes pageCount+web to the packager and does not auto-name", async () => {
+  let seenMeta, seenTargets;
+  const config = { listFile: "l.csv", cache: false, cleanup: false, drive: false, out: "downloads", costPerGb: null };
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const packagers = [{ write: async (_o, targets, metadata) => { seenTargets = targets; seenMeta = metadata; } }];
+  const orchestrator = { run: async () => ({ status: "success", usedStrategy: "current", downloaded: 7, total: 7, attempts: [], metadata: { title: null, count: null } }) };
+  const job = { url: "https://x/read", name: null };
+  const r = await scrapeJob({}, job, config, processor, packagers, null, noopLogger, orchestrator, { name: "batcave", contentType: "image", metadata: {} });
+  assert.equal(r.complete, true);
+  assert.deepEqual(seenMeta, { series: null, title: null, pageCount: 7, web: "https://x/read" });
+  const { resolveTargets } = await import("../src/naming.mjs");
+  assert.equal(seenTargets.cbzPath, resolveTargets(config, job).cbzPath, "falls back to the slug/sheet name, not a title");
+});

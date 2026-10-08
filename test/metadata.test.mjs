@@ -39,6 +39,12 @@ test("buildComicInfoXml: includes present fields, omits empties, escapes XML", (
   assert.doesNotMatch(xml, /undefined/);
 });
 
+test("buildComicInfoXml: escapes double and single quotes", () => {
+  const xml = buildComicInfoXml({ title: `He said "hi" & it's fine` });
+  assert.match(xml, /<Title>He said &quot;hi&quot; &amp; it&apos;s fine<\/Title>/);
+  assert.doesNotMatch(xml, /<Title>[^<]*["'][^<]*<\/Title>/);
+});
+
 test("buildComicInfoXml: returns null when nothing usable, drops zero/empty", () => {
   assert.equal(buildComicInfoXml({}), null);
   assert.equal(buildComicInfoXml({ title: "", pageCount: 0, web: null }), null);

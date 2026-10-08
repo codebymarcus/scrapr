@@ -8,6 +8,6 @@ export default {
   match: hostMatch("batcave.biz"),
   contentType: ContentType.IMAGE,
   pipeline: [{ mechanism: "chapter-aware", maxAttempts: 1, params: {} }],
-  // Reserved for sub-project #2 (metadata/auto-naming); unused this phase.
+  // Metadata patterns used by extractMetadata (title + page count; auto-naming/ComicInfo).
   metadata: { title: /From:\s*(.+)/, count: /Page\s+\d+\s*\/\s*(\d+)/i }
 };

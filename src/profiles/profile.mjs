@@ -6,7 +6,7 @@
 //   match: (url: string) => boolean,
 //   contentType: "image",                 // "text" is a future content type
 //   pipeline: Array<{ mechanism: string, maxAttempts?: number, params?: object }>,
-//   metadata: object                      // reserved seam (sub-project #2); may be {}
+//   metadata: object                      // patterns read by extractMetadata ({ title, count } regexes); may be {}
 // }
 export const ContentType = Object.freeze({ IMAGE: "image" });
 
