@@ -46,3 +46,29 @@ test("resolveTargets: batch mode without name derives folder from url", () => {
   const t = resolveTargets(cfg, { url: "https://read.x.com/i/5", name: null });
   assert.equal(t.outDir, path.join("downloads", "read-x-com-i-5"));
 });
+
+test("resolveTargets: batch outputName fills in when there is no job.name", () => {
+  const cfg = { listFile: "l.csv", out: "downloads" };
+  const t = resolveTargets(cfg, { url: "https://x/read", name: null }, { outputName: "Ultimate Hulk Annual" });
+  assert.equal(t.outDir, path.join("downloads", "Ultimate Hulk Annual"));
+  assert.equal(t.cbzPath, path.join("downloads", "Ultimate Hulk Annual.cbz"));
+});
+
+test("resolveTargets: explicit job.name wins over outputName", () => {
+  const cfg = { listFile: "l.csv", out: "downloads" };
+  const t = resolveTargets(cfg, { url: "https://x/read", name: "Issue 5" }, { outputName: "Ignored Title" });
+  assert.equal(t.outDir, path.join("downloads", "Issue 5"));
+});
+
+test("resolveTargets: outputName never changes the cache dir (resume stays stable)", () => {
+  const cfg = { listFile: "l.csv", out: "downloads" };
+  const without = resolveTargets(cfg, { url: "https://x/read", name: null });
+  const withName = resolveTargets(cfg, { url: "https://x/read", name: null }, { outputName: "Different Title" });
+  assert.equal(withName.cacheDir, without.cacheDir);
+});
+
+test("resolveTargets: single-URL mode ignores outputName", () => {
+  const cfg = { listFile: null, out: "myout" };
+  const t = resolveTargets(cfg, { url: "https://x/read", name: null }, { outputName: "Title" });
+  assert.equal(t.outDir, "myout");
+});

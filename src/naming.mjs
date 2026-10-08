@@ -28,16 +28,21 @@ function cacheDirFor(outDir) {
 // Resolve the output targets for one job.
 //   Single-URL mode: --out is the exact output dir.
 //   Batch mode:      --out is the PARENT dir; each link gets its own subfolder.
-export function resolveTargets(config, job) {
+export function resolveTargets(config, job, { outputName } = {}) {
   if (config.listFile) {
     const base = config.out || "downloads";
-    const folder = job.name ? sanitizeName(job.name) : slugFromUrl(job.url);
+    // Stable key for the cache dir (never from metadata) so resume is unaffected.
+    const cacheKey = job.name ? sanitizeName(job.name) : slugFromUrl(job.url);
+    // Display name for the output files: explicit name > metadata title > slug.
+    const folder = job.name
+      ? sanitizeName(job.name)
+      : (outputName ? sanitizeName(outputName) : slugFromUrl(job.url));
     const outDir = path.join(base, folder);
     return {
       outDir,
       cbzPath: path.join(base, `${folder}.cbz`),
       pdfPath: path.join(base, `${folder}.pdf`),
-      cacheDir: cacheDirFor(outDir)
+      cacheDir: cacheDirFor(path.join(base, cacheKey))
     };
   }
   const outDir = config.out || path.join("downloads", slugFromUrl(job.url));
