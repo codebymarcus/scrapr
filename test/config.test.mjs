@@ -118,3 +118,18 @@ test("strategies: a config-file array is carried through verbatim", () => {
   const cfg = buildConfig({ _: ["https://x/read"] }, { strategies: arr });
   assert.deepEqual(cfg.strategies, arr);
 });
+
+test("maxDomainFailures: defaults to 3", () => {
+  const cfg = buildConfig({ _: ["https://x/read"] }, {});
+  assert.equal(cfg.maxDomainFailures, 3);
+});
+
+test("maxDomainFailures: --max-domain-failures overrides (clamped ≥ 0)", () => {
+  assert.equal(buildConfig({ _: ["https://x/read"], "max-domain-failures": "5" }, {}).maxDomainFailures, 5);
+  assert.equal(buildConfig({ _: ["https://x/read"], "max-domain-failures": "-2" }, {}).maxDomainFailures, 0);
+});
+
+test("maxDomainFailures: config file value is honored", () => {
+  const cfg = buildConfig({ _: ["https://x/read"] }, { maxDomainFailures: 0 });
+  assert.equal(cfg.maxDomainFailures, 0);
+});

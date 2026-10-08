@@ -46,6 +46,10 @@ export const DEFAULTS = {
   // { name, maxAttempts?, enabled? }); null = use the matched profile.
   strategies: null,
   navTimeout: 45000, itemDelay: 3000, headed: false,
+  // circuit breaker: consecutive domain-health failures on one host before it is
+  // skipped for the rest of the run (rows stay retryable); grows the delay before
+  // then. 0 disables the breaker and the adaptive backoff.
+  maxDomainFailures: 3,
   // capture filters
   minBytes: 20000, hostFilter: null, issuePrefix: null, allImages: false,
   // image processing
@@ -147,6 +151,7 @@ export function buildConfig(args, fileConfig = {}) {
   if (has("settle")) cfg.settle = num(args.settle, cfg.settle);
   if (has("jitter")) cfg.jitter = num(args.jitter, cfg.jitter);
   if (has("max-retries")) cfg.maxRetries = Math.max(0, num(args["max-retries"], cfg.maxRetries));
+  if (has("max-domain-failures")) cfg.maxDomainFailures = Math.max(0, num(args["max-domain-failures"], cfg.maxDomainFailures));
   if (has("rate-limit-base")) cfg.rateLimitBase = num(args["rate-limit-base"], cfg.rateLimitBase);
   if (has("nav-timeout")) cfg.navTimeout = num(args["nav-timeout"], cfg.navTimeout);
   if (has("item-delay")) cfg.itemDelay = num(args["item-delay"], cfg.itemDelay);
