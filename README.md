@@ -111,96 +111,98 @@ node scrape.mjs --list links.xlsx --drive-subfolder "Batch 2"   # override just 
 
 ## Scraping strategies
 
-The scraper uses a pluggable multi-stage fallback pipeline: strategies run in
-order, each strategy retries itself for transient failures (up to `maxAttempts`),
-and when retries are exhausted the orchestrator falls back to the next strategy.
-The pipeline stops on the first valid result. Attempts are tracked within a
-single run; page-level resume across runs remains unchanged (the `PageCache`).
-Cross-strategy resume — a fallback strategy only fetching what an earlier
-strategy missed — also relies on that page cache; with `--no-cache`, a
-fallback strategy re-downloads every page over the network instead of picking
-up where the previous strategy left off.
+Each URL is scraped using a **site profile** — a per-site pipeline configuration
+that matches the reader by domain and sets up the right scraping mechanisms.
+The scraper uses a pluggable multi-stage fallback pipeline: mechanisms run in
+order, each retries itself for transient failures (up to `maxAttempts`), and
+when retries exhaust the orchestrator falls back to the next mechanism. The
+pipeline stops on the first valid result.
 
-### Built-in strategies
+### Built-in profiles
 
-**`current`** — The original headless keyboard-advance reader. Opens the URL past
-any JS gate, detects the page count from the reader's DOM elements, presses the
-advance key (`--advance-key`) through every page, and collects images as they
-load. This is the first strategy in the default pipeline.
+**`batcave`** — The batcave.biz "event" reader (continuous / looping multi-chapter).
+Instead of pressing advance keys (which flow out of chapter boundaries), it addresses
+the target chapter's pages **directly by URL fragment** (`<chapterUrl>#page-N`):
+- Reads the chapter's page count from the "Page X / N" counter.
+- Locks the `ImageCapture` onto the target chapter's image directory so neighbouring
+  preloaded images don't hijack the filter.
+- Visits `#page-1 … #page-N` in order (with a second pass to retry missed images), then stops.
 
-**`chapter-aware`** — A fallback for *continuous / looping* multi-chapter readers
-like batcave.biz's "event" reader, where pressing the advance key flows out of
-the opened chapter into adjacent chapters (so `current` stalls, collecting only
-the first page). Instead of pressing keys, it addresses the target chapter's
-pages **directly by URL fragment** (`<chapterUrl>#page-N`):
-- Reads the chapter's page count from the reader's own "Page X / N" counter.
-- Locks the shared `ImageCapture` onto the target chapter's image directory so a
-  neighbouring chapter's preloaded images can't hijack the directory filter.
-- Visits `#page-1 … #page-N` in order (with a second pass to retry any page whose
-  image didn't load the first time), then stops.
+Pipeline: `[chapter-aware]` (one attempt).
 
-Pages arrive in order, so output is ordered correctly even though the image
-filenames carry no dash-style page number. Since `chapter-aware` shares the same
-`ImageCapture`/`PageCache`, it only picks up pages the earlier strategy missed.
+**`generic`** — Default for all other sites. The original headless keyboard-advance reader:
+- Opens the URL past any JS gate.
+- Detects page count from the reader's DOM.
+- Presses `--advance-key` through every page, collecting images as they load.
 
-### Configuration
+Pipeline: `[current]` (2 attempts), then `[chapter-aware]` (1 attempt) as a fallback.
 
-The `strategies` config array defines the pipeline:
+### Pipeline configuration
+
+A **mechanism entry** has the shape:
+
+```json
+{ "mechanism": "current", "maxAttempts": 2, "params": { "settle": 900 } }
+```
+
+Keys:
+- `mechanism` — Mechanism name (`current`, `chapter-aware`).
+- `maxAttempts` — Retry count for transient failures (default: strategy-specific).
+- `params` — Per-site overrides merged over config at execute time.
+
+### Adding a site profile
+
+1. Create a new profile file `src/profiles/<name>.mjs`:
+
+```javascript
+export const myProfile = {
+  match: url => new URL(url).hostname.includes("myreader"),
+  contentType: "image",
+  pipeline: [
+    { mechanism: "current", maxAttempts: 2 }
+  ],
+  metadata: { title: "My Reader" }
+};
+```
+
+2. Register it in `src/profiles/registry.mjs`:
+
+```javascript
+import { myProfile } from "./my-profile.mjs";
+
+export const PROFILES = [
+  batcave,
+  myProfile,  // add this line
+  generic
+];
+```
+
+The profile is now active; URLs matching `match()` will use its pipeline.
+
+### Global strategy override
+
+By default the pipeline is chosen per-site by the active profile. Set
+`config.strategies` to force a specific pipeline for **all** links:
 
 ```json
 {
   "strategies": [
-    { "name": "current",       "enabled": true, "maxAttempts": 2 },
-    { "name": "chapter-aware", "enabled": true, "maxAttempts": 1 }
+    { "mechanism": "current", "maxAttempts": 2 },
+    { "mechanism": "chapter-aware", "maxAttempts": 1 }
   ]
 }
 ```
 
-Keys:
-- `name` — Strategy name (`current`, `chapter-aware`, or a custom strategy).
-- `enabled` — Include in the pipeline: `true` (default) or `false` to skip.
-- `maxAttempts` — Retry count for this strategy (default: strategy-specific).
+This overrides the per-site profiles globally. Omit the key to use the matched
+profile's pipeline.
 
-**Defaults:** Omit the entire `strategies` key to use the pipeline above.
-**Single-strategy mode:** Set `"strategies": [{ "name": "current" }]` to restore
-single-strategy behaviour (no fallback).
+### Content-agnostic seam
 
-### Adding a custom strategy
-
-Create a new strategy file `src/strategies/<name>.mjs`:
-
-```javascript
-export class MyStrategy {
-  constructor() {
-    this.name = "my-strategy";           // the name used in config.strategies
-    this.defaultMaxAttempts = 2;         // fallback if maxAttempts is not set
-  }
-
-  async execute({ session, job, config, capture, meter, logger }) {
-    // Inject your scraping logic here. Must return:
-    // - success: { status: "ok", data: { downloaded, total } }
-    // - failure: { status: "failed", error: { code }, data: { downloaded, total, message } }
-    // Use `session` (Playwright session), `capture` (shared ImageCapture), `logger`, etc.
-  }
-}
-```
-
-Then register it in `src/strategies/registry.mjs`:
-
-```javascript
-import { MyStrategy } from "./my-strategy.mjs";
-
-export const STRATEGY_FACTORIES = {
-  current: () => new BrowserKeyboardStrategy(),
-  "chapter-aware": () => new ChapterAwareStrategy(),
-  "my-strategy": () => new MyStrategy()   // add this line
-};
-```
-
-Your strategy is now available in `scraper.config.json`:
-```json
-{ "strategies": [{ "name": "my-strategy", "maxAttempts": 3 }] }
-```
+Each profile defines its `contentType` — today only `"image"` is supported
+(image page captures with format conversion). A future content type `"text"`
+(HTML → Markdown extraction) will allow the same profile registry and mechanism
+interface to drive text-content scraping. Profiles are designed to be reusable
+across content types once that seam is implemented.
 
 ## Batch mode: scrape a list of links from Excel
 
