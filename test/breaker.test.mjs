@@ -33,6 +33,16 @@ test("record: a success resets the counter (domain recovered)", () => {
   assert.equal(b.isTripped("h"), false, "counter reset by the success in between");
 });
 
+test("record: a success clears the tripped status (tripped host recovered)", () => {
+  const b = new CircuitBreaker(2, { base: 1000 });
+  b.record("h", { ok: false, code: "BLOCKED" });
+  b.record("h", { ok: false, code: "BLOCKED" });
+  assert.equal(b.isTripped("h"), true);
+  b.record("h", { ok: true });
+  assert.equal(b.isTripped("h"), false);
+  assert.equal(b.extraDelay("h"), 0);
+});
+
 test("extraDelay: 0 when healthy; escalates base·2^(n-1) capped at cap; resets on success", () => {
   const b = new CircuitBreaker(5, { base: 1000, cap: 4000 });
   assert.equal(b.extraDelay("h"), 0);

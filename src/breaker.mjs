@@ -44,7 +44,7 @@ export class CircuitBreaker {
 
   record(host, { ok, code } = {}) {
     if (!this.enabled()) return;
-    if (ok) { this._fails.set(host, 0); return; }
+    if (ok) { this._fails.set(host, 0); this._tripped.delete(host); return; }
     if (!DOMAIN_HEALTH_CODES.has(code)) return;
     const n = (this._fails.get(host) || 0) + 1;
     this._fails.set(host, n);
