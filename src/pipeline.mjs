@@ -329,7 +329,8 @@ export class BatchRunner {
         for (const f of failed) {
           const code = failureCodeOf(f);
           const mech = f.usedStrategy || "";
-          const detail = code ? `${code}${mech ? `, ${mech}` : ""}` : `${f.saved || 0}/${f.total || "?"} pages`;
+          let detail = code ? `${code}${mech ? `, ${mech}` : ""}` : `${f.saved || 0}/${f.total || "?"} pages`;
+          if (code === "UNKNOWN_ERROR" && f.error) detail += `: ${f.error}`;
           this.logger.warn(`  - ${f.url} (${detail})`);
         }
       }

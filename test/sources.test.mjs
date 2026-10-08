@@ -114,3 +114,15 @@ test("UrlSource: setReason is a no-op (does not throw)", async () => {
   await src.load();
   assert.doesNotThrow(() => src.setReason({ row: -1 }, "X"));
 });
+
+test("SheetSource: a user `note` column is not adopted as the reason column", async () => {
+  await withTempCsv("url,note\nhttps://x/1,keep me\n", async (file) => {
+    const src = new SheetSource(file);
+    const jobs = await src.load();
+    src.setReason(jobs[0], "BLOCKED");
+    src.setStatus(jobs[0], "retry");
+    const text = await readFile(file, "utf8");
+    assert.match(text.split("\n")[0], /\breason\b/, "a reason column was appended");
+    assert.match(text, /keep me/, "the user's note column is preserved, not overwritten");
+  });
+});

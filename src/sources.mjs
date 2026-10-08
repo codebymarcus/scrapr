@@ -72,7 +72,9 @@ export class SheetSource {
     this._statusCol = statusCol;
     this.hasStatus = true;
 
-    let reasonCol = find(["reason", "error", "note"]);
+    // Reuse only an existing explicit `reason` column; otherwise append one. Never adopt
+    // `error`/`note` — those are human-maintained and would be overwritten.
+    let reasonCol = find(["reason"]);
     if (reasonCol === -1) {
       reasonCol = range.e.c + 1; // append a reason column and grow the range
       ws[xlsx.utils.encode_cell({ r: hr, c: reasonCol })] = { t: "s", v: "reason" };

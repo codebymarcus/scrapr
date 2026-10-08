@@ -172,8 +172,9 @@ Document in `scraper.config.example.json`.
 ## 5. Sheet `reason` column — `src/sources.mjs`
 
 `SheetSource` manages a second column, `reason`, exactly like `status`:
-- On `load()`, find a header among `reason`/`error`/`note`; if absent, append a
-  new `reason` column (grow the range) — mirroring the existing status-column
+- On `load()`, reuse an existing explicit `reason` header only (never
+  `error`/`note`, which are human-maintained and would be overwritten); if absent,
+  append a new `reason` column (grow the range) — mirroring the existing status-column
   creation. Store `this._reasonCol`.
 - `setReason(job, text)`: write `text` to the job's row in the reason column and
   persist (same write-back path as `setStatus`, with the same "is it open in
