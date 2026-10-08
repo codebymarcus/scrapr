@@ -194,3 +194,20 @@ test("scrapeJob: threads the profile's contentType onto the result", async () =>
   assert.equal(r.complete, true);
   assert.equal(r.contentType, "image");
 });
+
+test("_runJobs: a throwing profile resolution marks the row retry and continues the batch", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const statuses = {};
+  const ran = [];
+  runner._resolveProfile = (url) => { if (url.includes("bad")) throw new Error("boom"); return { name: "generic", contentType: "image" }; };
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (s, job) => { ran.push(job.url); return { saved: 1, total: 1, complete: true }; };
+  const source = { hasStatus: true, setStatus: (job, v) => { statuses[job.url] = v; } };
+  const jobs = [{ url: "https://bad/1", status: "", row: 1 }, { url: "https://good/2", status: "", row: 2 }];
+  const results = await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.deepEqual(ran, ["https://good/2"]);
+  assert.equal(statuses["https://bad/1"], "retry");
+  assert.equal(statuses["https://good/2"], "done");
+  assert.equal(results[0].ok, false);
+  assert.match(results[0].error, /boom/);
+});

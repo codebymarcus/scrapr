@@ -252,24 +252,24 @@ export class BatchRunner {
 
       if (jobs.length > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
-      const profile = this._resolveProfile(job.url);
-      const strategies = this._resolvePipeline(profile, this.config, this.logger);
-      this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
-
       let complete = false;
-      if (!strategies.length) {
-        this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
-        results.push({ ...job, saved: 0, ok: false, error: "no mechanisms resolved" });
-      } else {
-        const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
-        try {
+      try {
+        const profile = this._resolveProfile(job.url);
+        const strategies = this._resolvePipeline(profile, this.config, this.logger);
+        this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
+
+        if (!strategies.length) {
+          this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
+          results.push({ ...job, saved: 0, ok: false, error: "no mechanisms resolved" });
+        } else {
+          const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
           const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
           complete = r.complete;
           results.push({ ...job, ...r, ok: complete });
-        } catch (e) {
-          this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
-          results.push({ ...job, saved: 0, ok: false, error: String(e?.message || e) });
         }
+      } catch (e) {
+        this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
+        results.push({ ...job, saved: 0, ok: false, error: String(e?.message || e) });
       }
 
       // Persist outcome immediately so an interrupted batch is resumable.
