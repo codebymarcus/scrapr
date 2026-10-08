@@ -155,24 +155,25 @@ Keys:
 1. Create a new profile file `src/profiles/<name>.mjs`:
 
 ```javascript
-export const myProfile = {
+export default {
+  name: "my-reader",
   match: url => new URL(url).hostname.includes("myreader"),
   contentType: "image",
   pipeline: [
     { mechanism: "current", maxAttempts: 2 }
   ],
-  metadata: { title: "My Reader" }
+  metadata: {}
 };
 ```
 
 2. Register it in `src/profiles/registry.mjs`:
 
 ```javascript
-import { myProfile } from "./my-profile.mjs";
+import myReader from "./my-reader.mjs";
 
 export const PROFILES = [
   batcave,
-  myProfile,  // add this line
+  myReader,  // add this line
   generic
 ];
 ```
@@ -194,7 +195,9 @@ By default the pipeline is chosen per-site by the active profile. Set
 ```
 
 This overrides the per-site profiles globally. Omit the key to use the matched
-profile's pipeline.
+profile's pipeline. An empty `"strategies": []` is treated the same as omitting
+the key — it does NOT disable all scraping; instead, the matched profile's
+pipeline is used.
 
 ### Content-agnostic seam
 
