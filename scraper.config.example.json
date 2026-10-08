@@ -11,6 +11,7 @@
   "cbz": false,            // also write a .cbz archive: true | false.
   "pdf": true,             // also write a .pdf (one page per image): true | false.
   "keepLoose": false,      // keep the loose image files too: true | false (false = only the archive(s)).
+  "text": false,             // scrape pages as article text (HTML → Markdown, saved as a .md with YAML frontmatter) instead of images: true | false. Same as --text.
 
   // --- Google Drive upload (optional; needs credentials.json + token.json) ---
   "drive": true,                 // enable uploading the produced .cbz/.pdf: true | false.

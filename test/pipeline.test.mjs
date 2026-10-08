@@ -313,3 +313,41 @@ test("_runJobs: maxDomainFailures 0 (disabled) never skips", async () => {
   await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
   assert.equal(scraped.length, 3, "all rows attempted when breaker disabled");
 });
+
+test("_runJobs: routes a text profile to _scrapeText, image profile to _scrapeJob", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 0 }, noopLogger);
+  const calls = [];
+  runner._resolveProfile = (url) => (url.includes("blog") ? { name: "t", contentType: "text" } : { name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeText = async (s, job) => { calls.push(`text:${job.url}`); return { ok: true, complete: true, saved: 1, contentType: "text" }; };
+  runner._scrapeJob = async (s, job) => { calls.push(`img:${job.url}`); return { complete: true, saved: 1, total: 1 }; };
+  const source = { hasStatus: false, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs: [{ url: "https://blog/a", status: "" }, { url: "https://img/b", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.deepEqual(calls, ["text:https://blog/a", "img:https://img/b"]);
+});
+
+test("_runJobs: --text (config.text) forces text mode for every URL", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 0, text: true }, noopLogger);
+  const calls = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._scrapeText = async (s, job) => { calls.push(job.url); return { ok: true, complete: true, saved: 1, contentType: "text" }; };
+  runner._scrapeJob = async () => { throw new Error("should not be called"); };
+  const source = { hasStatus: false, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs: [{ url: "https://any/x", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.deepEqual(calls, ["https://any/x"]);
+});
+
+test("_runJobs: a text TIMEOUT failure feeds the breaker and writes the reason", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 2, text: true }, noopLogger);
+  const reasons = {};
+  runner._resolveProfile = () => ({ name: "t", contentType: "text" });
+  runner._scrapeText = async () => ({ ok: false, complete: false, saved: 0, contentType: "text", attempts: [{ name: "text", status: "failed", code: "TIMEOUT" }] });
+  const source = { hasStatus: true, setStatus() {}, setReason: (j, v) => { reasons[j.url] = v; } };
+  const breaker = new CircuitBreaker(2, { base: 0 });
+  const scraped = [];
+  const origText = runner._scrapeText;
+  runner._scrapeText = async (s, job) => { scraped.push(job.url); return origText(s, job); };
+  await runner._runJobs({ jobs: [{ url: "https://d/1", status: "", row: 1 }, { url: "https://d/2", status: "", row: 2 }, { url: "https://d/3", status: "", row: 3 }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker });
+  assert.deepEqual(scraped, ["https://d/1", "https://d/2"], "3rd row skipped after breaker tripped on text TIMEOUTs");
+  assert.equal(reasons["https://d/1"], "TIMEOUT");
+});

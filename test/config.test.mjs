@@ -133,3 +133,12 @@ test("maxDomainFailures: config file value is honored", () => {
   const cfg = buildConfig({ _: ["https://x/read"] }, { maxDomainFailures: 0 });
   assert.equal(cfg.maxDomainFailures, 0);
 });
+
+test("text: --text sets config.text; default false", () => {
+  assert.equal(buildConfig({ _: ["https://x/read"] }, {}).text, false);
+  assert.equal(buildConfig({ _: ["https://x/read"], text: true }, {}).text, true);
+});
+
+test("text: --text-name sets textName", () => {
+  assert.equal(buildConfig({ _: ["https://x/read"], "text-name": "out.md" }, {}).textName, "out.md");
+});

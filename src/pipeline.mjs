@@ -18,6 +18,7 @@ import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
+import { scrapeText } from "./text/scrape-text.mjs";
 import { resolveProfile, resolvePipeline } from "./profiles/registry.mjs";
 import { validate } from "./result-validator.mjs";
 import { CircuitBreaker, hostOf, failureCodeOf } from "./breaker.mjs";
@@ -48,6 +49,11 @@ export function describeDryRun(config, jobs) {
     lines.push(`(${i + 1}/${jobs.length}) ${job.url}`);
     if (reason) {
       lines.push(`    ${reason} — skipped`);
+      return;
+    }
+    if (config.text) {
+      lines.push(`    will scrape`);
+      lines.push(`    md → ${targets.mdPath}`);
       return;
     }
     lines.push(`    will scrape`);
@@ -107,8 +113,6 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
                bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
     }
 
-    if (contentType !== "image") throw new Error(`unsupported contentType "${contentType}" (text output is a future content type)`);
-
     // Normalize metadata for packaging + naming (best-effort; fields may be null).
     const md = r.metadata || {};
     const metadata = { series: md.title ?? null, title: md.title ?? null, pageCount: r.total ?? null, web: job.url };
@@ -164,6 +168,7 @@ export class BatchRunner {
     this._stopping = false;
     // Injectable so the batch loop can be unit-tested without a real browser.
     this._scrapeJob = deps.scrapeJob || scrapeJob;
+    this._scrapeText = deps.scrapeText || scrapeText;
     this._resolveProfile = deps.resolveProfile || resolveProfile;
     this._resolvePipeline = deps.resolvePipeline || resolvePipeline;
     this._validate = deps.validate || validate;
@@ -281,17 +286,25 @@ export class BatchRunner {
       let rec;
       try {
         const profile = this._resolveProfile(job.url);
-        const strategies = this._resolvePipeline(profile, this.config, this.logger);
-        this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
-
-        if (!strategies.length) {
-          this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
-          rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
-        } else {
-          const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
-          const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
+        const contentType = this.config.text ? "text" : (profile.contentType || "image");
+        if (contentType === "text") {
+          this.logger.verbose(`profile=${profile.name} contentType=text`);
+          const r = await this._scrapeText(session, job, this.config, this.logger, profile);
           complete = r.complete;
           rec = { ...job, ...r, ok: complete };
+        } else {
+          const strategies = this._resolvePipeline(profile, this.config, this.logger);
+          this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
+
+          if (!strategies.length) {
+            this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
+            rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
+          } else {
+            const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
+            const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
+            complete = r.complete;
+            rec = { ...job, ...r, ok: complete };
+          }
         }
       } catch (e) {
         this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
