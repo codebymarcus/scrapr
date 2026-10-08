@@ -72,3 +72,14 @@ test("resolveTargets: single-URL mode ignores outputName", () => {
   const t = resolveTargets(cfg, { url: "https://x/read", name: null }, { outputName: "Title" });
   assert.equal(t.outDir, "myout");
 });
+
+test("resolveTargets: batch mdPath is the folder + .md, auto-named from outputName", () => {
+  const cfg = { listFile: "l.csv", out: "downloads" };
+  const t = resolveTargets(cfg, { url: "https://x/read", name: null }, { outputName: "My Article" });
+  assert.equal(t.mdPath, path.join("downloads", "My Article.md"));
+});
+
+test("resolveTargets: single-URL mdPath defaults to outDir + .md, or textName", () => {
+  assert.equal(resolveTargets({ listFile: null, out: "myout" }, { url: "https://x/read", name: null }).mdPath, "myout.md");
+  assert.equal(resolveTargets({ listFile: null, out: "myout", textName: "custom.md" }, { url: "https://x/read", name: null }).mdPath, "custom.md");
+});

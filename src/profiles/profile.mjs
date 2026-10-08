@@ -4,11 +4,12 @@
 // Profile = {
 //   name: string,
 //   match: (url: string) => boolean,
-//   contentType: "image",                 // "text" is a future content type
+//   contentType: "image" | "text",
+//   text?: { selector: string },          // optional; used when contentType is "text"
 //   pipeline: Array<{ mechanism: string, maxAttempts?: number, params?: object }>,
 //   metadata: object                      // patterns read by extractMetadata ({ title, count } regexes); may be {}
 // }
-export const ContentType = Object.freeze({ IMAGE: "image" });
+export const ContentType = Object.freeze({ IMAGE: "image", TEXT: "text" });
 
 // Build a matcher for one or more hosts: true when the URL's hostname equals a
 // host or is a subdomain of it. Safe on malformed URLs (returns false).

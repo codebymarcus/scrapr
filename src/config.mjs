@@ -4,7 +4,7 @@
 // subfolder, format, …) live in one place and CLI flags override them per run.
 import { existsSync, readFileSync } from "node:fs";
 
-const FLAGS = new Set(["headed", "all-images", "jpg", "cbz", "cbz-only", "pdf", "pdf-only", "drive", "cleanup", "dry-run", "accept-partial", "no-cache", "clear-cache", "verbose", "debug"]);
+const FLAGS = new Set(["headed", "all-images", "jpg", "cbz", "cbz-only", "pdf", "pdf-only", "drive", "cleanup", "dry-run", "accept-partial", "no-cache", "clear-cache", "verbose", "debug", "text"]);
 
 export function parseArgs(argv) {
   const args = { _: [] };
@@ -56,6 +56,8 @@ export const DEFAULTS = {
   format: "keep", quality: 88, maxEdge: 2400,
   // output packagers
   cbz: false, cbzName: null, pdf: false, pdfName: null, keepLoose: true,
+  // text content type: scrape the page as HTML→Markdown (.md) instead of images.
+  text: false, textName: null,
   // google drive
   drive: false, driveFolder: null, driveSubfolder: null, driveOnly: null,
   driveCredentials: "credentials.json", driveToken: "token.json",
@@ -172,6 +174,8 @@ export function buildConfig(args, fileConfig = {}) {
   if (args.pdf || args["pdf-only"]) cfg.pdf = true;
   if (has("pdf-name")) cfg.pdfName = args["pdf-name"];
   if (args["cbz-only"] || args["pdf-only"]) cfg.keepLoose = false;
+  if (args.text) cfg.text = true;
+  if (has("text-name")) cfg.textName = args["text-name"];
 
   if (args.drive) cfg.drive = true;
   if (has("drive-folder")) cfg.driveFolder = args["drive-folder"];

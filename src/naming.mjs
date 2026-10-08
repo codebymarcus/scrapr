@@ -42,6 +42,7 @@ export function resolveTargets(config, job, { outputName } = {}) {
       outDir,
       cbzPath: path.join(base, `${folder}.cbz`),
       pdfPath: path.join(base, `${folder}.pdf`),
+      mdPath: path.join(base, `${folder}.md`),
       cacheDir: cacheDirFor(path.join(base, cacheKey))
     };
   }
@@ -50,6 +51,7 @@ export function resolveTargets(config, job, { outputName } = {}) {
     outDir,
     cbzPath: config.cbzName || `${outDir}.cbz`,
     pdfPath: config.pdfName || `${outDir}.pdf`,
+    mdPath: config.textName || `${outDir}.md`,
     cacheDir: cacheDirFor(outDir)
   };
 }
