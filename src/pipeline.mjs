@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
 import { resolveProfile, resolvePipeline } from "./profiles/registry.mjs";
 import { validate } from "./result-validator.mjs";
+import { CircuitBreaker, hostOf, failureCodeOf } from "./breaker.mjs";
 export { decideOutcome } from "./outcome.mjs";
 
 // Which rows are left alone. Only blank or "retry" are crawled. Shared by the
@@ -222,20 +223,23 @@ export class BatchRunner {
     };
     process.on("SIGINT", onSigint);
 
+    const breaker = new CircuitBreaker(this.config.maxDomainFailures, { base: this.config.itemDelay || 3000 });
+
     let results;
     try {
-      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader });
+      results = await this._runJobs({ jobs, source, session, processor, packagers, uploader, breaker });
     } finally {
       process.removeListener("SIGINT", onSigint);
       await session.close();
     }
 
-    return this._summary(jobs, results);
+    return this._summary(jobs, results, breaker);
   }
 
   // Iterate the jobs, honouring the status column and the stop flag. Extracted
   // from run() so it can be tested with an injected job runner and no browser.
-  async _runJobs({ jobs, source, session, processor, packagers, uploader }) {
+  async _runJobs({ jobs, source, session, processor, packagers, uploader, breaker }) {
+    const brk = breaker || new CircuitBreaker(0);
     const results = [];
     let scrapedAny = false;
     for (let i = 0; i < jobs.length; i++) {
@@ -256,12 +260,25 @@ export class BatchRunner {
         }
       }
 
-      if (scrapedAny && this.config.itemDelay > 0) await sleep(withJitter(this.config.itemDelay, this.config.jitter));
+      const host = hostOf(job.url);
+      if (brk.isTripped(host)) {
+        brk.noteSkip();
+        this.logger.muted(`${tag} skipped — ${host} circuit-breaker tripped (left to retry) — ${job.url}`);
+        results.push({ ...job, skipped: true, breakerSkipped: true });
+        source.setReason?.(job, "skipped: domain circuit-breaker");
+        continue;
+      }
+
+      const extra = brk.extraDelay(host);
+      const waitMs = (scrapedAny ? this.config.itemDelay : 0) + extra;
+      if (extra > 0) this.logger.verbose?.(`backing off ${host} ${Math.round(extra / 1000)}s`);
+      if (waitMs > 0) await sleep(withJitter(waitMs, this.config.jitter));
       scrapedAny = true;
 
       if (jobs.length > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
       let complete = false;
+      let rec;
       try {
         const profile = this._resolveProfile(job.url);
         const strategies = this._resolvePipeline(profile, this.config, this.logger);
@@ -269,25 +286,32 @@ export class BatchRunner {
 
         if (!strategies.length) {
           this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
-          results.push({ ...job, saved: 0, ok: false, error: "no mechanisms resolved" });
+          rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
         } else {
           const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
           const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
           complete = r.complete;
-          results.push({ ...job, ...r, ok: complete });
+          rec = { ...job, ...r, ok: complete };
         }
       } catch (e) {
         this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
-        results.push({ ...job, saved: 0, ok: false, error: String(e?.message || e) });
+        rec = { ...job, saved: 0, ok: false, error: String(e?.message || e) };
       }
+      results.push(rec);
+
+      const code = failureCodeOf(rec);
+      brk.record(host, { ok: complete, code });
 
       // Persist outcome immediately so an interrupted batch is resumable.
-      if (source.hasStatus) source.setStatus(job, complete ? "done" : "retry");
+      if (source.hasStatus) {
+        source.setStatus(job, complete ? "done" : "retry");
+        source.setReason?.(job, complete ? "" : (code || "FAILED"));
+      }
     }
     return results;
   }
 
-  _summary(jobs, results) {
+  _summary(jobs, results, breaker) {
     if (jobs.length > 1) {
       const attempted = results.filter((r) => !r.skipped);
       const ok = attempted.filter((r) => r.ok).length;
@@ -303,7 +327,18 @@ export class BatchRunner {
       if (failed.length) {
         this.logger.warn("marked retry:");
         for (const f of failed) {
-          this.logger.warn(`  - ${f.url}${f.error ? ` (${f.error})` : ` (${f.saved || 0}/${f.total || "?"} pages)`}`);
+          const code = failureCodeOf(f);
+          const mech = f.usedStrategy || "";
+          const detail = code ? `${code}${mech ? `, ${mech}` : ""}` : `${f.saved || 0}/${f.total || "?"} pages`;
+          this.logger.warn(`  - ${f.url} (${detail})`);
+        }
+      }
+      const tripped = breaker?.trippedHosts?.() || [];
+      if (tripped.length) {
+        this.logger.warn("circuit breaker tripped:");
+        for (const host of tripped) {
+          const n = results.filter((r) => r.breakerSkipped && hostOf(r.url) === host).length;
+          this.logger.warn(`  - ${host}: too many failures → ${n} row(s) skipped this run (left to retry)`);
         }
       }
       return failed.length && ok === 0 ? 2 : 0;

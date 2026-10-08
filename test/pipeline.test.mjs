@@ -251,3 +251,65 @@ test("scrapeJob: with no extracted title, still passes pageCount+web to the pack
   const { resolveTargets } = await import("../src/naming.mjs");
   assert.equal(seenTargets.cbzPath, resolveTargets(config, job).cbzPath, "falls back to the slug/sheet name, not a title");
 });
+
+import { CircuitBreaker } from "../src/breaker.mjs";
+
+test("_runJobs: trips a domain after threshold hard failures and skips its remaining rows", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 2 }, noopLogger);
+  const scraped = [];
+  const statuses = {}; const reasons = {};
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (s, job) => {
+    scraped.push(job.url);
+    return { saved: 0, total: 10, complete: false, attempts: [{ name: "current", status: "failed", code: "RATE_LIMITED" }] };
+  };
+  const source = { hasStatus: true, setStatus: (j, v) => { statuses[j.url] = v; }, setReason: (j, v) => { reasons[j.url] = v; } };
+  const jobs = [
+    { url: "https://d.co/1", status: "", row: 1 },
+    { url: "https://d.co/2", status: "", row: 2 },
+    { url: "https://d.co/3", status: "", row: 3 }
+  ];
+  const breaker = new CircuitBreaker(2, { base: 0 });
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker });
+  assert.deepEqual(scraped, ["https://d.co/1", "https://d.co/2"], "row 3 skipped after 2 failures tripped the domain");
+  assert.equal(statuses["https://d.co/3"], undefined, "skipped row's status untouched (stays retryable)");
+  assert.match(reasons["https://d.co/3"], /circuit-breaker/);
+  assert.equal(reasons["https://d.co/1"], "RATE_LIMITED", "failure code written to reason");
+});
+
+test("_runJobs: a success resets the counter so the domain is not skipped", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 2 }, noopLogger);
+  const scraped = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  let call = 0;
+  runner._scrapeJob = async (s, job) => {
+    scraped.push(job.url);
+    call++;
+    const fail = call !== 2; // row 2 succeeds, rows 1 and 3 fail
+    return fail
+      ? { saved: 0, total: 10, complete: false, attempts: [{ name: "current", status: "failed", code: "BLOCKED" }] }
+      : { saved: 10, total: 10, complete: true, attempts: [] };
+  };
+  const source = { hasStatus: true, setStatus() {}, setReason() {} };
+  const jobs = [
+    { url: "https://d.co/1", status: "", row: 1 },
+    { url: "https://d.co/2", status: "", row: 2 },
+    { url: "https://d.co/3", status: "", row: 3 }
+  ];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(2, { base: 0 }) });
+  assert.deepEqual(scraped, ["https://d.co/1", "https://d.co/2", "https://d.co/3"], "no trip: success reset the counter");
+});
+
+test("_runJobs: maxDomainFailures 0 (disabled) never skips", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 0 }, noopLogger);
+  const scraped = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (s, job) => { scraped.push(job.url); return { saved: 0, total: 1, complete: false, attempts: [{ name: "current", status: "failed", code: "BLOCKED" }] }; };
+  const source = { hasStatus: true, setStatus() {}, setReason() {} };
+  const jobs = [{ url: "https://d.co/1", status: "", row: 1 }, { url: "https://d.co/2", status: "", row: 2 }, { url: "https://d.co/3", status: "", row: 3 }];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.equal(scraped.length, 3, "all rows attempted when breaker disabled");
+});

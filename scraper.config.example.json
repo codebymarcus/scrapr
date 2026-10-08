@@ -28,6 +28,7 @@
   "settle": 700,               // ms to wait after each page turn.
   "jitter": 0.3,               // randomize every wait by ± this fraction (0–1).
   "itemDelay": 3000,           // ms pause between links in batch mode.
+  "maxDomainFailures": 3,       // circuit breaker: after N consecutive rate-limit/block/timeout failures on one host in a run, skip its remaining rows (left to retry) and grow the delay before then. 0 disables.
   "headed": false,             // show the browser window (for debugging): true | false.
   "dryRun": false,             // preview the batch (targets, skips, Drive dest) without scraping or uploading.
   "cache": true,               // resumable page cache: keep downloaded pages between runs so an interrupted link resumes instead of re-downloading. false = --no-cache.
