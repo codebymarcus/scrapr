@@ -40,7 +40,8 @@ export const isRetryable = (code) => RETRYABLE.has(code);
 export function mapError(err) {
   const msg = String(err?.message || err || "").toLowerCase();
   if (err?.name === "TimeoutError" || msg.includes("timeout")) return FailureCode.TIMEOUT;
-  if (msg.includes("net::") || msg.includes("econn") || msg.includes("socket") || msg.includes("dns") || msg.includes("network"))
+  if (msg.includes("net::") || msg.includes("econn") || msg.includes("socket") || msg.includes("dns") ||
+      msg.includes("network") || msg.includes("fetch failed") || msg.includes("enotfound") || msg.includes("getaddrinfo"))
     return FailureCode.NETWORK_ERROR;
   return FailureCode.UNKNOWN_ERROR;
 }
