@@ -212,7 +212,12 @@ export function buildConfig(args, fileConfig = {}) {
   return cfg;
 }
 
+const TEXT_MODES = new Set(["article", "pattern", "selector"]);
+
 export function validateConfig(config) {
   if (!config.url && !config.listFile) return "Provide a reader URL, or --list <file> for batch mode.";
+  if (!TEXT_MODES.has(config.textMode)) {
+    return `Invalid --text-mode "${config.textMode}" (expected one of: article, pattern, selector).`;
+  }
   return null;
 }

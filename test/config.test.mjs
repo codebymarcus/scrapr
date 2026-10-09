@@ -158,3 +158,14 @@ test("text modes: --text-mode, repeatable --select/--pattern, --no-http-first", 
 test("text mode default is article when --text with no select/pattern", () => {
   assert.equal(buildConfig({ _: ["https://x"], text: true }, {}).textMode, "article");
 });
+
+test("validateConfig: rejects an unknown --text-mode with a clear error", () => {
+  const bad = buildConfig(parseArgs(["https://x", "--text-mode", "artcle"]), {});
+  assert.match(validateConfig(bad), /text-mode.*article.*pattern.*selector/i);
+  // valid modes pass
+  for (const m of ["article", "pattern", "selector"]) {
+    assert.equal(validateConfig(buildConfig(parseArgs(["https://x", "--text-mode", m]), {})), null);
+  }
+  // default (no flag) passes
+  assert.equal(validateConfig(buildConfig(parseArgs(["https://x"]), {})), null);
+});
