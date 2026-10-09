@@ -19,6 +19,7 @@ export async function acquireAndExtract({ url, mode, opts, session, config, logg
   if (!extract) return { status: "fail", code: FailureCode.PARSER_ERROR, bytes: 0, requests: 0 };
 
   let bytes = 0, requests = 0;
+  let staticFailCode = null; // transport failure observed on the static path (null = none)
 
   // 1) STATIC
   if (config.httpFirst !== false) {
@@ -40,9 +41,11 @@ export async function acquireAndExtract({ url, mode, opts, session, config, logg
         if (!payload.empty || mode !== "article") return { status: "ok", payload, via: "http", bytes, requests };
         logger.verbose?.(`static fetch yielded nothing for ${url} — escalating to browser`);
       } else {
+        if (!res.ok) staticFailCode = FailureCode.HTTP_ERROR; // 2xx non-HTML stays null
         logger.verbose?.(`static fetch not usable (status=${res.status} type=${ctype || "?"}) — escalating`);
       }
     } catch (e) {
+      staticFailCode = mapError(e);
       logger.verbose?.(`static fetch failed for ${url} (${e?.message || e}) — escalating`);
     }
   }
@@ -54,13 +57,19 @@ export async function acquireAndExtract({ url, mode, opts, session, config, logg
     const BandwidthMeter = deps.BandwidthMeter; // optional in tests
     const meter = BandwidthMeter ? new BandwidthMeter() : null;
     meter?.attach?.(page);
-    await openReader(page, url, config, logger);
+    const resp = await openReader(page, url, config, logger);
     const html = await page.content();
     if (meter) { bytes += meter.bytes; requests += meter.count; }
     const { document } = parseHtml(html);
     const payload = extract(document, html, opts);
     if (!payload.empty) return { status: "ok", payload, via: "browser", bytes, requests };
-    return { status: "fail", code: FailureCode.EMPTY_RESULT, bytes, requests };
+    // openReader never throws on a failed navigation: it returns null (or the
+    // final response). Classify so transport failures feed the circuit breaker.
+    const status = resp?.status?.();
+    if (resp == null) return { status: "fail", code: staticFailCode || FailureCode.NETWORK_ERROR, bytes, requests };
+    if (typeof status === "number" && status >= 400) return { status: "fail", code: FailureCode.HTTP_ERROR, bytes, requests };
+    if (mode !== "article") return { status: "ok", payload, via: "browser", bytes, requests }; // nav ok, legit zero-match
+    return { status: "fail", code: FailureCode.EMPTY_RESULT, bytes, requests }; // article genuinely empty
   } catch (e) {
     logger.error?.(`browser acquisition failed for ${url}: ${e?.message || e}`);
     return { status: "fail", code: mapError(e), bytes, requests };

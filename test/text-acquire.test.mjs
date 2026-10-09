@@ -48,24 +48,45 @@ test("records modes: static loads with zero matches → clean ok via:http, NO br
   assert.equal(r.payload.empty, true);
 });
 
-test("non-2xx → escalate; browser empty too → EMPTY_RESULT", async () => {
+test("non-2xx → escalate; browser nav fails (null) → HTTP_ERROR", async () => {
   const r = await acquireAndExtract({
     url: "https://x/a", mode: "echo", opts: {}, session: fakeSession("<body>nope</body>"),
     config: { httpFirst: true, navTimeout: 1000 }, logger: noopLogger,
-    deps: { fetchFn: async () => ({ ok: false, status: 503, headers: { get: () => "text/html" }, text: async () => "" }), openReader: async () => {}, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+    deps: { fetchFn: async () => ({ ok: false, status: 503, headers: { get: () => "text/html" }, text: async () => "" }), openReader: async () => null, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
   });
   assert.equal(r.status, "fail");
-  assert.equal(r.code, "EMPTY_RESULT");
+  assert.equal(r.code, "HTTP_ERROR");
 });
 
-test("static network throw → escalates; browser empty → EMPTY_RESULT", async () => {
+test("static network throw → escalates; browser nav fails (null) → NETWORK_ERROR", async () => {
   const r = await acquireAndExtract({
     url: "https://x/a", mode: "echo", opts: {}, session: fakeSession("<body>nope</body>"),
     config: { httpFirst: true, navTimeout: 1000 }, logger: noopLogger,
-    deps: { fetchFn: async () => { throw new TypeError("fetch failed"); }, openReader: async () => {}, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+    deps: { fetchFn: async () => { throw new TypeError("fetch failed"); }, openReader: async () => null, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
   });
   assert.equal(r.status, "fail");
-  assert.equal(r.code, "EMPTY_RESULT");
+  assert.equal(r.code, "NETWORK_ERROR");
+});
+
+test("NON-throwing failed nav (real openReader behavior) feeds NETWORK_ERROR, not EMPTY_RESULT", async () => {
+  const r = await acquireAndExtract({
+    url: "https://dead.example/a", mode: "echo", opts: {}, session: fakeSession(""),
+    config: { httpFirst: true, navTimeout: 1000 }, logger: noopLogger,
+    deps: { fetchFn: async () => { throw new TypeError("fetch failed"); }, openReader: async () => null, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+  });
+  assert.equal(r.status, "fail");
+  assert.equal(r.code, "NETWORK_ERROR");
+});
+
+test("records mode, --no-http-first: nav ok + zero matches via browser → clean ok via:browser", async () => {
+  const r = await acquireAndExtract({
+    url: "https://x/a", mode: "echo", opts: {}, session: fakeSession("<body>nope</body>"),
+    config: { httpFirst: false, navTimeout: 1000 }, logger: noopLogger,
+    deps: { openReader: async () => ({ status: () => 200, ok: () => true }), extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+  });
+  assert.equal(r.status, "ok");
+  assert.equal(r.via, "browser");
+  assert.equal(r.payload.empty, true);
 });
 
 test("both paths fail with a network error → mapped NETWORK_ERROR", async () => {
