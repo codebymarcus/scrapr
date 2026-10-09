@@ -5,7 +5,9 @@
 //   name: string,
 //   match: (url: string) => boolean,
 //   contentType: "image" | "text",
-//   text?: { selector: string },          // optional; used when contentType is "text"
+//   text?: { mode?: "article"|"pattern"|"selector", selector?: string,
+//            fields?: [{ name, selector, attr?, many? }], patterns?: string[] },
+//                                           // optional; used when contentType is "text"
 //   pipeline: Array<{ mechanism: string, maxAttempts?: number, params?: object }>,
 //   metadata: object                      // patterns read by extractMetadata ({ title, count } regexes); may be {}
 // }

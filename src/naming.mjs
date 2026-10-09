@@ -55,3 +55,11 @@ export function resolveTargets(config, job, { outputName } = {}) {
     cacheDir: cacheDirFor(outDir)
   };
 }
+
+// Run-level base path (no extension) for aggregate record output (.json/.csv).
+// Single-URL: --out (or "results"); batch: <out>/results; --text-name overrides.
+export function resolveRecordBase(config) {
+  if (config.textName) return config.textName;
+  if (config.listFile) return path.join(config.out || "downloads", "results");
+  return config.out || "results";
+}

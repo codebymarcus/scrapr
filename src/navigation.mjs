@@ -34,11 +34,12 @@ export async function navigateWithRetry(page, url, config, logger) {
 // sets a cookie then bounces back).
 export async function openReader(page, url, config, logger) {
   logger.info(`opening ${url}`);
-  await navigateWithRetry(page, url, config, logger);
+  let resp = await navigateWithRetry(page, url, config, logger);
   for (let i = 0; i < 4 && /[/?&]_c\?|\/_c\//.test(page.url()); i++) {
     logger.debug?.(`JS gate detected (${page.url()}); re-requesting (${i + 1}/4)`);
     await sleep(withJitter(3500, config.jitter));
-    await navigateWithRetry(page, url, config, logger);
+    resp = await navigateWithRetry(page, url, config, logger);
   }
   await sleep(1500);
+  return resp;
 }

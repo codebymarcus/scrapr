@@ -12,13 +12,14 @@ import { ImageProcessor } from "./processor.mjs";
 import { buildPackagers } from "./packagers.mjs";
 import { createJobSource } from "./sources.mjs";
 import { DriveUploader } from "./drive.mjs";
-import { resolveTargets } from "./naming.mjs";
+import { resolveTargets, resolveRecordBase } from "./naming.mjs";
 import { PageCache } from "./cache.mjs";
 import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
-import { scrapeText } from "./text/scrape-text.mjs";
+import { scrapeText, resolveMode } from "./text/scrape-text.mjs";
+import { RecordWriter } from "./text/records.mjs";
 import { resolveProfile, resolvePipeline } from "./profiles/registry.mjs";
 import { validate } from "./result-validator.mjs";
 import { CircuitBreaker, hostOf, failureCodeOf } from "./breaker.mjs";
@@ -52,8 +53,10 @@ export function describeDryRun(config, jobs) {
       return;
     }
     if (config.text) {
-      lines.push(`    will scrape`);
-      lines.push(`    md → ${targets.mdPath}`);
+      const mode = config.textMode || "article";
+      lines.push(`    will scrape (text: ${mode})`);
+      if (mode === "article") lines.push(`    md → ${targets.mdPath}`);
+      else { const base = resolveRecordBase(config); lines.push(`    records → ${base}.json, ${base}.csv`); }
       return;
     }
     lines.push(`    will scrape`);
@@ -166,6 +169,7 @@ export class BatchRunner {
     this.config = config;
     this.logger = logger;
     this._stopping = false;
+    this._recordWriter = null; // created lazily on the first records-mode text job
     // Injectable so the batch loop can be unit-tested without a real browser.
     this._scrapeJob = deps.scrapeJob || scrapeJob;
     this._scrapeText = deps.scrapeText || scrapeText;
@@ -238,6 +242,7 @@ export class BatchRunner {
       await session.close();
     }
 
+    if (this._recordWriter && this._recordWriter.count) this.logger.info(`wrote ${this._recordWriter.count} record(s) → ${this._recordWriter.jsonPath}, ${this._recordWriter.csvPath}`);
     return this._summary(jobs, results, breaker);
   }
 
@@ -288,8 +293,12 @@ export class BatchRunner {
         const profile = this._resolveProfile(job.url);
         const contentType = this.config.text ? "text" : (profile.contentType || "image");
         if (contentType === "text") {
-          this.logger.verbose(`profile=${profile.name} contentType=text`);
-          const r = await this._scrapeText(session, job, this.config, this.logger, profile);
+          const mode = resolveMode(this.config, profile);
+          this.logger.verbose(`profile=${profile.name} contentType=text mode=${mode}`);
+          if ((mode === "pattern" || mode === "selector") && !this._recordWriter) {
+            this._recordWriter = new RecordWriter(resolveRecordBase(this.config));
+          }
+          const r = await this._scrapeText(session, job, this.config, this.logger, profile, { recordWriter: this._recordWriter });
           complete = r.complete;
           rec = { ...job, ...r, ok: complete };
         } else {
@@ -337,6 +346,9 @@ export class BatchRunner {
       if (totalBytes > 0) {
         this.logger.info(`total bandwidth: ${formatBandwidth(totalBytes, totalReqs, this.config.costPerGb)}`);
       }
+      const viaHttp = attempted.filter((r) => r.via === "http").length;
+      const viaBrowser = attempted.filter((r) => r.via === "browser").length;
+      if (viaHttp || viaBrowser) this.logger.info(`text acquisition: ${viaHttp} via http, ${viaBrowser} via browser`);
       if (failed.length) {
         this.logger.warn("marked retry:");
         for (const f of failed) {
