@@ -1,54 +1,93 @@
 // src/text/scrape-text.mjs
-// The text content path: open the page (past the JS gate), extract the main
-// content, convert to Markdown, and write a .md. Returns the batch loop's result
-// shape so the circuit breaker / status / reason column work like the image path.
+// The text content path: resolve the extraction mode, acquire the page (HTTP-first,
+// escalating to the browser), run the extractor, and write output — a .md for
+// article mode, or a record appended to the run's aggregate CSV/JSON for
+// pattern/selector. Returns the batch loop's result shape (with `via`).
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { openReader as defaultOpenReader } from "../navigation.mjs";
-import { extractArticle as defaultExtractArticle } from "./extract.mjs";
-import { htmlToMarkdown, buildMarkdownDoc } from "./markdown.mjs";
-import { extractMetadata as defaultExtractMetadata } from "../metadata.mjs";
+import { acquireAndExtract as defaultAcquire } from "./acquire.mjs";
+import { buildMarkdownDoc } from "./markdown.mjs";
 import { resolveTargets } from "../naming.mjs";
+import { resolvePatterns } from "./extractors/pattern.mjs";
+import { FailureCode } from "../strategies/strategy.mjs";
 import { BandwidthMeter } from "../bandwidth.mjs";
-import { mapError, FailureCode } from "../strategies/strategy.mjs";
 
-// A failed text result. The code lives ONLY in `attempts` (no top-level `error`
-// string) — matching the image failed-result shape — so `failureCodeOf` reports
-// this exact code (it prefers a top-level `error` when present) in the reason
-// column and to the breaker. The human message is logged, not returned.
-const fail = (code) => ({ ok: false, complete: false, saved: 0, contentType: "text", attempts: [{ name: "text", status: "failed", code }] });
+const fail = (code, bytes = 0, requests = 0) => ({ ok: false, complete: false, saved: 0, contentType: "text", attempts: [{ name: "text", status: "failed", code }], bytes, requests });
+
+export function resolveMode(config, profile) {
+  if (config.textMode && config.textMode !== "article") return config.textMode;
+  if (profile?.text?.mode) return profile.text.mode;
+  return config.textMode || "article";
+}
+
+// Build the extractor opts for a mode from CLI config + profile.
+export function buildOpts(mode, config, profile) {
+  const pt = profile?.text || {};
+  if (mode === "pattern") {
+    return { patterns: resolvePatterns(config.textPatterns?.length ? config.textPatterns : (pt.patterns || [])) };
+  }
+  if (mode === "selector") {
+    const fromCli = (config.textSelect || []).map((s) => {
+      const eq = s.indexOf("=");
+      const name = eq > 0 && /^[A-Za-z0-9_-]+$/.test(s.slice(0, eq)) ? s.slice(0, eq) : null;
+      return name ? { name, selector: s.slice(eq + 1) } : { name: "text", selector: s };
+    });
+    return { fields: fromCli.length ? fromCli : (pt.fields || (pt.selector ? [{ name: "text", selector: pt.selector }] : [])) };
+  }
+  // article
+  return { selector: pt.selector };
+}
+
+// Shape a non-empty extractor payload into one aggregate record for the URL.
+export function toRecord(url, payload) {
+  if (payload.kind === "pattern") {
+    const rec = { url };
+    for (const m of payload.matches) (rec[m.type] ||= []).push(m.value);
+    return rec;
+  }
+  return { url, ...payload.fields };
+}
 
 export async function scrapeText(session, job, config, logger, profile, deps = {}) {
-  const openReader = deps.openReader || defaultOpenReader;
-  const extractArticle = deps.extractArticle || defaultExtractArticle;
-  const extractMetadata = deps.extractMetadata || defaultExtractMetadata;
-  const page = await session.newPage();
-  const meter = new BandwidthMeter();
+  const acquireAndExtract = deps.acquireAndExtract || defaultAcquire;
+  const recordWriter = deps.recordWriter || null;
+  const mode = resolveMode(config, profile);
+  let opts;
   try {
-    meter.attach?.(page);
-    await openReader(page, job.url, config, logger);
-    const art = await extractArticle(page, { selector: profile?.text?.selector });
-    if (!art || !art.html) {
-      logger.warn?.(`no article content extracted from ${job.url}`);
-      return { ...fail(FailureCode.EMPTY_RESULT), bytes: meter.bytes, requests: meter.count };
-    }
-    const markdown = htmlToMarkdown(art.html);
-    if (!markdown) return { ...fail(FailureCode.EMPTY_RESULT), bytes: meter.bytes, requests: meter.count };
-
-    let title = art.title;
-    if (!title) { try { title = (await extractMetadata(page, profile?.metadata || {})).title; } catch { /* best-effort */ } }
-
-    const targets = resolveTargets(config, job, { outputName: title || undefined });
-    const doc = buildMarkdownDoc({ title, source: job.url, date: new Date().toISOString().slice(0, 10), byline: art.byline, excerpt: art.excerpt, markdown });
-    await mkdir(path.dirname(targets.mdPath), { recursive: true });
-    await writeFile(targets.mdPath, doc);
-    logger.success?.(`wrote Markdown (${doc.length} bytes) → ${targets.mdPath}`);
-    return { ok: true, complete: true, saved: 1, contentType: "text", bytes: meter.bytes, requests: meter.count };
+    opts = buildOpts(mode, config, profile);
   } catch (e) {
-    logger.error?.(`text scrape failed on ${job.url}: ${e?.message || e}`);
-    return { ...fail(mapError(e)), bytes: meter.bytes, requests: meter.count };
-  } finally {
-    await page.close().catch(() => {});
-    logger.info?.(`bandwidth: ${meter.summary(config.costPerGb)}`);
+    logger.error?.(`text config error for ${job.url}: ${e?.message || e}`);
+    return fail(FailureCode.PARSER_ERROR);
+  }
+
+  const acq = await acquireAndExtract({
+    url: job.url, mode, opts, session, config, logger,
+    deps: { BandwidthMeter }
+  });
+  if (acq.status !== "ok") {
+    logger.error?.(`text scrape failed on ${job.url}: ${acq.code}`);
+    return fail(acq.code, acq.bytes, acq.requests);
+  }
+
+  const { payload, via, bytes, requests } = acq;
+  try {
+    if (mode === "article") {
+      const title = payload.title;
+      const targets = resolveTargets(config, job, { outputName: title || undefined });
+      const doc = buildMarkdownDoc({ title, source: job.url, date: new Date().toISOString().slice(0, 10), byline: payload.byline, excerpt: payload.excerpt, markdown: payload.markdown });
+      await mkdir(path.dirname(targets.mdPath), { recursive: true });
+      await writeFile(targets.mdPath, doc);
+      logger.success?.(`wrote Markdown (${doc.length} bytes, via ${via}) → ${targets.mdPath}`);
+      return { ok: true, complete: true, saved: 1, contentType: "text", bytes, requests, via };
+    }
+    // pattern / selector → record
+    const record = toRecord(job.url, payload);
+    const saved = mode === "pattern" ? payload.matches.length : Object.keys(payload.fields).filter((k) => { const v = payload.fields[k]; return Array.isArray(v) ? v.length : v != null; }).length;
+    if (recordWriter) await recordWriter.append(record);
+    logger.success?.(`extracted ${saved} ${mode} value(s) from ${job.url} (via ${via})`);
+    return { ok: true, complete: true, saved, contentType: "text", bytes, requests, via };
+  } catch (e) {
+    logger.error?.(`text write failed on ${job.url}: ${e?.message || e}`);
+    return fail(FailureCode.UNKNOWN_ERROR, bytes, requests);
   }
 }
