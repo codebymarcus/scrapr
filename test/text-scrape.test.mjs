@@ -42,10 +42,12 @@ test("scrapeText records → appends to writer; saved = match count", async () =
 });
 
 test("scrapeText: zero matches is a clean success (saved:0), not a failure", async () => {
-  const recordWriter = { append: async () => {} };
+  const appended = [];
+  const recordWriter = { append: async (rec) => appended.push(rec) };
   const deps = { recordWriter, acquireAndExtract: async () => ({ status: "ok", via: "http", bytes: 1, requests: 1, payload: { kind: "pattern", empty: true, matches: [] } }) };
   const r = await scrapeText({}, { url: "https://x/a" }, { textMode: "pattern" }, noopLogger, {}, deps);
   assert.equal(r.ok, true); assert.equal(r.complete, true); assert.equal(r.saved, 0);
+  assert.equal(appended.length, 0);
 });
 
 test("scrapeText: acquisition fail → failed result, code in attempts, NO top-level error", async () => {

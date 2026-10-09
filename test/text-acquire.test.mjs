@@ -24,14 +24,28 @@ test("static success → via:http, no browser", async () => {
   assert.equal(opened, false);
 });
 
-test("static loads but extractor empty → escalate to browser (via:browser)", async () => {
+test("article: static loads but extractor empty → escalate to browser (via:browser)", async () => {
+  const articleExtractors = { article: extractors.echo };
   const r = await acquireAndExtract({
-    url: "https://x/a", mode: "echo", opts: {}, session: fakeSession("<body>HIT</body>"),
+    url: "https://x/a", mode: "article", opts: {}, session: fakeSession("<body>HIT</body>"),
     config: { httpFirst: true, navTimeout: 1000 }, logger: noopLogger,
-    deps: { fetchFn: async () => okResp("<body>nope</body>"), openReader: async () => {}, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+    deps: { fetchFn: async () => okResp("<body>nope</body>"), openReader: async () => {}, extractors: articleExtractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
   });
   assert.equal(r.status, "ok");
   assert.equal(r.via, "browser");
+});
+
+test("records modes: static loads with zero matches → clean ok via:http, NO browser", async () => {
+  let opened = false;
+  const r = await acquireAndExtract({
+    url: "https://x/a", mode: "echo", opts: {}, session: { newPage: async () => { opened = true; return fakePage("<body>HIT</body>"); } },
+    config: { httpFirst: true, navTimeout: 1000 }, logger: noopLogger,
+    deps: { fetchFn: async () => okResp("<body>nope</body>"), openReader: async () => {}, extractors, parseHtml: (h) => ({ document: { body: { textContent: h } } }) }
+  });
+  assert.equal(opened, false);
+  assert.equal(r.status, "ok");
+  assert.equal(r.via, "http");
+  assert.equal(r.payload.empty, true);
 });
 
 test("non-2xx → escalate; browser empty too → EMPTY_RESULT", async () => {

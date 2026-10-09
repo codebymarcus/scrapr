@@ -83,7 +83,7 @@ export async function scrapeText(session, job, config, logger, profile, deps = {
     // pattern / selector → record
     const record = toRecord(job.url, payload);
     const saved = mode === "pattern" ? payload.matches.length : Object.keys(payload.fields).filter((k) => { const v = payload.fields[k]; return Array.isArray(v) ? v.length : v != null; }).length;
-    if (recordWriter) await recordWriter.append(record);
+    if (recordWriter && saved > 0) await recordWriter.append(record);
     logger.success?.(`extracted ${saved} ${mode} value(s) from ${job.url} (via ${via})`);
     return { ok: true, complete: true, saved, contentType: "text", bytes, requests, via };
   } catch (e) {

@@ -35,7 +35,9 @@ export async function acquireAndExtract({ url, mode, opts, session, config, logg
         bytes += Buffer.byteLength(html || "", "utf8");
         const { document } = parseHtml(html);
         const payload = extract(document, html, opts);
-        if (!payload.empty) return { status: "ok", payload, via: "http", bytes, requests };
+        // A loaded page with zero matches is a clean success for records modes
+        // (pattern/selector); only "article" escalates (it may be JS-rendered).
+        if (!payload.empty || mode !== "article") return { status: "ok", payload, via: "http", bytes, requests };
         logger.verbose?.(`static fetch yielded nothing for ${url} — escalating to browser`);
       } else {
         logger.verbose?.(`static fetch not usable (status=${res.status} type=${ctype || "?"}) — escalating`);
