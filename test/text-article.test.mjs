@@ -40,3 +40,11 @@ test("extractArticle: truly empty → empty:true", () => {
   const r = extractArticle(document, "<body></body>", {}, { runReadability: () => null });
   assert.equal(r.empty, true);
 });
+
+test("extractArticle: full-document SPA shell with empty body → empty:true (no head/title leak)", () => {
+  const html = '<html><head><title>App</title></head><body><div id="root"></div><script>1</script></body></html>';
+  const { document } = parseHtml(html);
+  const r = extractArticle(document, html, {}, { runReadability: () => null });
+  assert.equal(r.empty, true);
+  assert.doesNotMatch(r.markdown || "", /App/);
+});

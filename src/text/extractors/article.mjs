@@ -15,15 +15,35 @@ function defaultRunReadability(doc) {
   } catch { return null; }
 }
 
+// linkedom quirk: a bare "<body>…</body>" fragment (no <html> wrapper) parses with
+// documentElement being the real <body> holding the content and doc.body an empty
+// shell. Only in that case use documentElement; for a full document always use
+// doc.body (even if empty) so <head>/<title> never leak and an empty/JS-gated page
+// stays empty.
+function bodyOrFragmentRoot(doc) {
+  if (doc.body && cleanInnerHtml(doc.body)) return doc.body;
+  const root = doc.documentElement;
+  if (root && root.localName === "body") return root;
+  return doc.body;
+}
+
+// innerHTML of el with non-content nodes (script/style/noscript/template) removed, so
+// an SPA shell whose only "content" is a bootstrap <script> stays empty. Never throws.
+function cleanInnerHtml(el) {
+  try {
+    const clone = el.cloneNode(true);
+    for (const n of clone.querySelectorAll("script, style, noscript, template")) n.remove();
+    return (clone.textContent || "").trim() ? clone.innerHTML : "";
+  } catch { return el.innerHTML || ""; }
+}
+
 function fallbackHtml(doc, selector) {
   const el =
     (selector && doc.querySelector(selector)) ||
     doc.querySelector("article") ||
     doc.querySelector("main") ||
-    // linkedom quirk: a bare "<body>…</body>" fragment parses with documentElement
-    // being the real content and doc.body an empty shell, so prefer whichever has content.
-    (doc.body && (doc.body.textContent || "").trim() ? doc.body : doc.documentElement);
-  return el ? { title: doc.title || null, html: el.innerHTML || el.textContent || "", byline: null, excerpt: null } : null;
+    bodyOrFragmentRoot(doc);
+  return el ? { title: doc.title || null, html: cleanInnerHtml(el), byline: null, excerpt: null } : null;
 }
 
 export function extractArticle(doc, html, { selector } = {}, deps = {}) {
@@ -32,7 +52,7 @@ export function extractArticle(doc, html, { selector } = {}, deps = {}) {
   let a = null;
   if (selector) {
     const el = doc.querySelector(selector);
-    if (el) a = { title: doc.title || null, html: el.innerHTML || "", byline: null, excerpt: null };
+    if (el) a = { title: doc.title || null, html: cleanInnerHtml(el), byline: null, excerpt: null };
   }
   if (!a || !a.html) a = runReadability(doc);
   if (!a || !a.html) a = fallbackHtml(doc, selector);
