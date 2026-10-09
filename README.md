@@ -222,6 +222,21 @@ node scrape.mjs https://example.com/article --text --out article
 - Extraction uses the profile's selector if set, otherwise Mozilla Readability
   on the rendered page (falling back to `<body>`), converted to Markdown with
   turndown.
+- **Three modes.** `--text` (article → one `.md`, the default above);
+  `--pattern email|phone|url|name=/regex/` (repeatable or comma-separated) pulls
+  matching values into records; `--select "css"` or `--select "name=css"` pulls
+  elements matching a CSS selector into records. `--pattern`/`--select` imply
+  text mode (`textMode: "pattern"` / `"selector"` in the config).
+- **Aggregate output.** Pattern/selector runs write one `<out>.json` and one
+  `<out>.csv` per run (one record per URL, appended as the batch progresses)
+  instead of a `.md` per page.
+- **HTTP-first.** Text modes try a plain static HTTP fetch first and escalate to
+  the browser only when the page needs rendering or the fetch is blocked. The
+  run summary reports `N via http, M via browser`. Use `--no-http-first`
+  (`"httpFirst": false`) to force the browser every time.
+- **Profiles.** A site profile can set `text: { mode, selector | fields, patterns }`
+  to choose the mode per site (`fields` is a list of `{ name, selector }`
+  entries for `selector` mode).
 - Text jobs share the batch loop's status column, circuit breaker, and
   `--dry-run` preview with image jobs.
 

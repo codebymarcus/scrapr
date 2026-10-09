@@ -12,6 +12,8 @@
   "pdf": true,             // also write a .pdf (one page per image): true | false.
   "keepLoose": false,      // keep the loose image files too: true | false (false = only the archive(s)).
   "text": false,             // scrape pages as article text (HTML → Markdown, saved as a .md with YAML frontmatter) instead of images: true | false. Same as --text.
+  "textMode": "article",     // what --text extracts: "article" (one .md) | "pattern" (regex records: email/phone/url/name=/re/) | "selector" (CSS records). pattern/selector write aggregate <out>.json + .csv. Same as --pattern / --select.
+  "httpFirst": true,         // text modes: try a plain static HTTP fetch first and only escalate to the browser when needed. false = always use the browser (same as --no-http-first).
 
   // --- Google Drive upload (optional; needs credentials.json + token.json) ---
   "drive": true,                 // enable uploading the produced .cbz/.pdf: true | false.

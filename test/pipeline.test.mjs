@@ -351,3 +351,24 @@ test("_runJobs: a text TIMEOUT failure feeds the breaker and writes the reason",
   assert.deepEqual(scraped, ["https://d/1", "https://d/2"], "3rd row skipped after breaker tripped on text TIMEOUTs");
   assert.equal(reasons["https://d/1"], "TIMEOUT");
 });
+
+test("_runJobs: records-mode text job appends to the run RecordWriter", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 0, text: true, textMode: "pattern" }, noopLogger);
+  const appended = [];
+  runner._recordWriter = { append: async (r) => appended.push(r), count: 0 };
+  runner._resolveProfile = () => ({ name: "generic", contentType: "text" });
+  runner._scrapeText = async (s, job, config, logger, profile, deps) => { await deps.recordWriter.append({ url: job.url, email: ["a@b"] }); return { ok: true, complete: true, saved: 1, contentType: "text", via: "http" }; };
+  const source = { hasStatus: false, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs: [{ url: "https://x/a", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.deepEqual(appended, [{ url: "https://x/a", email: ["a@b"] }]);
+});
+
+test("_runJobs: article text job still routes to _scrapeText (no record writer needed)", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 0, text: true, textMode: "article" }, noopLogger);
+  const calls = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "text" });
+  runner._scrapeText = async (s, job) => { calls.push(job.url); return { ok: true, complete: true, saved: 1, contentType: "text", via: "browser" }; };
+  const source = { hasStatus: false, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs: [{ url: "https://x/a", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.deepEqual(calls, ["https://x/a"]);
+});
