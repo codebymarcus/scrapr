@@ -4,7 +4,8 @@
 // subfolder, format, …) live in one place and CLI flags override them per run.
 import { existsSync, readFileSync } from "node:fs";
 
-const FLAGS = new Set(["headed", "all-images", "jpg", "cbz", "cbz-only", "pdf", "pdf-only", "drive", "cleanup", "dry-run", "accept-partial", "no-cache", "clear-cache", "verbose", "debug", "text"]);
+const FLAGS = new Set(["headed", "all-images", "jpg", "cbz", "cbz-only", "pdf", "pdf-only", "drive", "cleanup", "dry-run", "accept-partial", "no-cache", "clear-cache", "verbose", "debug", "text", "no-http-first"]);
+const REPEATABLE = new Set(["select", "pattern"]);
 
 export function parseArgs(argv) {
   const args = { _: [] };
@@ -13,6 +14,7 @@ export function parseArgs(argv) {
     if (a.startsWith("--")) {
       const key = a.slice(2);
       if (FLAGS.has(key)) { args[key] = true; continue; }
+      if (REPEATABLE.has(key)) { (args[key] ||= []).push(argv[++i]); continue; }
       args[key] = argv[++i];
     } else {
       args._.push(a);
@@ -58,6 +60,8 @@ export const DEFAULTS = {
   cbz: false, cbzName: null, pdf: false, pdfName: null, keepLoose: true,
   // text content type: scrape the page as HTML→Markdown (.md) instead of images.
   text: false, textName: null,
+  // text extraction mode + its inputs; httpFirst = try a static fetch before the browser.
+  textMode: "article", textSelect: [], textPatterns: [], httpFirst: true,
   // google drive
   drive: false, driveFolder: null, driveSubfolder: null, driveOnly: null,
   driveCredentials: "credentials.json", driveToken: "token.json",
@@ -176,6 +180,12 @@ export function buildConfig(args, fileConfig = {}) {
   if (args["cbz-only"] || args["pdf-only"]) cfg.keepLoose = false;
   if (args.text) cfg.text = true;
   if (has("text-name")) cfg.textName = args["text-name"];
+  if (has("text-mode")) cfg.textMode = String(args["text-mode"]);
+  const selects = Array.isArray(args.select) ? args.select : (has("select") ? [args.select] : []);
+  const patterns = Array.isArray(args.pattern) ? args.pattern : (has("pattern") ? [args.pattern] : []);
+  if (selects.length) { cfg.textSelect = selects; cfg.textMode = "selector"; cfg.text = true; }
+  if (patterns.length) { cfg.textPatterns = patterns; cfg.textMode = "pattern"; cfg.text = true; }
+  if (args["no-http-first"]) cfg.httpFirst = false;
 
   if (args.drive) cfg.drive = true;
   if (has("drive-folder")) cfg.driveFolder = args["drive-folder"];

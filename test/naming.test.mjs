@@ -83,3 +83,11 @@ test("resolveTargets: single-URL mdPath defaults to outDir + .md, or textName", 
   assert.equal(resolveTargets({ listFile: null, out: "myout" }, { url: "https://x/read", name: null }).mdPath, "myout.md");
   assert.equal(resolveTargets({ listFile: null, out: "myout", textName: "custom.md" }, { url: "https://x/read", name: null }).mdPath, "custom.md");
 });
+
+import { resolveRecordBase } from "../src/naming.mjs";
+test("resolveRecordBase: single-URL uses out; batch uses out/results; textName overrides", () => {
+  assert.equal(resolveRecordBase({ listFile: null, out: "myout" }), "myout");
+  assert.equal(resolveRecordBase({ listFile: "l.csv", out: "downloads" }), path.join("downloads", "results"));
+  assert.equal(resolveRecordBase({ listFile: "l.csv", out: "downloads", textName: "contacts" }), "contacts");
+  assert.equal(resolveRecordBase({ listFile: null, out: null }), "results");
+});

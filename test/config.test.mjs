@@ -142,3 +142,19 @@ test("text: --text sets config.text; default false", () => {
 test("text: --text-name sets textName", () => {
   assert.equal(buildConfig({ _: ["https://x/read"], "text-name": "out.md" }, {}).textName, "out.md");
 });
+
+test("text modes: --text-mode, repeatable --select/--pattern, --no-http-first", () => {
+  const a = parseArgs(["--select", ".a", "--select", "price=.p", "--pattern", "email", "--no-http-first"]);
+  assert.deepEqual(a.select, [".a", "price=.p"]);
+  assert.deepEqual(a.pattern, ["email"]);
+  const c = buildConfig({ _: ["https://x"], select: [".a", "price=.p"] }, {});
+  assert.equal(c.textMode, "selector");
+  assert.deepEqual(c.textSelect, [".a", "price=.p"]);
+  const p = buildConfig({ _: ["https://x"], pattern: ["email"] }, {});
+  assert.equal(p.textMode, "pattern");
+  assert.equal(buildConfig({ _: ["https://x"], "no-http-first": true }, {}).httpFirst, false);
+  assert.equal(buildConfig({ _: ["https://x"] }, {}).httpFirst, true);
+});
+test("text mode default is article when --text with no select/pattern", () => {
+  assert.equal(buildConfig({ _: ["https://x"], text: true }, {}).textMode, "article");
+});
