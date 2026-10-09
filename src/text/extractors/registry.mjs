@@ -3,8 +3,10 @@
 // mode = create its file + one line here.
 import { extractPattern } from "./pattern.mjs";
 import { extractSelector } from "./selector.mjs";
+import { extractArticle } from "./article.mjs";
 
 export const EXTRACTORS = {
   pattern: extractPattern,
-  selector: extractSelector
+  selector: extractSelector,
+  article: extractArticle
 };
