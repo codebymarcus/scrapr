@@ -7,15 +7,18 @@ export function extractSelector(doc, html, { fields = [] } = {}) {
     const v = attr ? el.getAttribute(attr) : el.textContent;
     return v == null ? null : String(v).trim();
   };
+  // An invalid CSS selector throws SyntaxError; treat it as "no match".
+  const safeAll = (sel) => { try { return [...doc.querySelectorAll(sel)]; } catch { return []; } };
+  const safeOne = (sel) => { try { return doc.querySelector(sel); } catch { return null; } };
   const out = {};
   let any = false;
   for (const f of fields) {
     if (f.many) {
-      const vals = [...doc.querySelectorAll(f.selector)].map((el) => read(el, f.attr)).filter((v) => v != null && v !== "");
+      const vals = safeAll(f.selector).map((el) => read(el, f.attr)).filter((v) => v != null && v !== "");
       out[f.name] = vals;
       if (vals.length) any = true;
     } else {
-      const v = read(doc.querySelector(f.selector), f.attr);
+      const v = read(safeOne(f.selector), f.attr);
       out[f.name] = v && v !== "" ? v : null;
       if (out[f.name] != null) any = true;
     }

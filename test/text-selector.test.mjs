@@ -34,3 +34,14 @@ test("extractSelector: missing field → null; all missing → empty:true", () =
   assert.deepEqual(r.fields.tags, []);
   assert.equal(r.empty, true);
 });
+
+test("extractSelector: an invalid CSS selector is treated as no-match (never throws)", () => {
+  const { document } = parseHtml("<body><p>x</p></body>");
+  const r = extractSelector(document, "<body><p>x</p></body>", { fields: [
+    { name: "bad", selector: "::::" },
+    { name: "badMany", selector: "[", many: true }
+  ] });
+  assert.equal(r.fields.bad, null);
+  assert.deepEqual(r.fields.badMany, []);
+  assert.equal(r.empty, true);
+});
