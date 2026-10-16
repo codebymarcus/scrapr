@@ -1,0 +1,19 @@
+{
+  "name": "scraper-dashboard-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.3.4",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.7",
+    "zod": "^4.6.7"
+  }
+}

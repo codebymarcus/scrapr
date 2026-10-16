@@ -3,12 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "scaper": "./scrape.mjs"
   },
   "scripts": {
     "postinstall": "playwright install chromium",
-    "test": "node --test"
+    "test": "node --test \"test/**/*.test.mjs\""
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",

@@ -403,3 +403,26 @@ test("applyImageDimensionRules ignores non-dimension rules and never decodes wit
   const out = await applyImageDimensionRules(imgs, { excludeUrl: "/ad/" }, { dimsOf });
   assert.equal(out, imgs);
 });
+
+test("run() uses an injected createJobSource", async () => {
+  // Force the empty-list early return (run() returns 1 before launching a browser
+  // when config.listFile is set and the source loads zero jobs) so the test needs no Chromium.
+  const fakeSource = { hasStatus: true, load: async () => [], setStatus() {}, setReason() {} };
+  let used = false;
+  const runner = new BatchRunner({ listFile: "x.csv" }, noopLogger,
+    { createJobSource: () => { used = true; return fakeSource; } });
+  const code = await runner.run();
+  assert.equal(used, true);
+  assert.equal(code, 1); // "no links found" path — no browser launched
+});
+
+test("_runJobs calls deps.onItem with each item's result record", async () => {
+  const seen = [];
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger, { onItem: (rec) => seen.push(rec) });
+  runner._scrapeJob = async (s, job) => ({ saved: 2, total: 2, complete: true });
+  const source = { hasStatus: false };
+  await runner._runJobs({ jobs: [{ url: "https://x/1", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, "https://x/1");
+  assert.equal(seen[0].ok, true);
+});
