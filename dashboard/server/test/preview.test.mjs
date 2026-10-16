@@ -46,6 +46,7 @@ test("text preview returns the previewText result using the pooled session", asy
     via: "browser",
     mode: "selector",
     fields: [{ name: "title", value: "Hi" }],
+    builtInRecipe: null,
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://example.com/a");
@@ -111,6 +112,49 @@ test("image preview includes unenforcedRuleKeys for selector rules", async () =>
     payload: { url: "https://example.com", recipe },
   });
   assert.deepEqual(none.json().unenforcedRuleKeys, []);
+  await app.close();
+});
+
+test("image preview passes a candidate's thumbnail data URI through unchanged", async () => {
+  const thumbnail = "data:image/webp;base64,AAAA";
+  const imagePreview = async () => ({
+    status: "ok",
+    via: "browser",
+    images: [
+      { url: "https://example.com/i.png", width: 1, height: 1, selector: "img", index: 0, thumbnail },
+      { url: "https://example.com/j.png", width: 1, height: 1, selector: "img", index: 1 },
+    ],
+  });
+  const app = buildApp({ getBrowser, imagePreview });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/preview/image",
+    payload: { url: "https://example.com", recipe },
+  });
+  assert.equal(res.statusCode, 200);
+  const { images } = res.json();
+  assert.equal(images[0].thumbnail, thumbnail);
+  assert.equal("thumbnail" in images[1], false);
+  await app.close();
+});
+
+test("both preview endpoints report builtInRecipe (batcave match, null for generic)", async () => {
+  const app = buildApp({
+    getBrowser,
+    previewText: async () => ({ status: "ok", via: "browser", mode: "selector", fields: [] }),
+    imagePreview: async () => ({ status: "ok", via: "browser", images: [] }),
+  });
+  const cases = [
+    ["/api/preview/text", "https://batcave.biz/event/world-war-hulk/1", "batcave"],
+    ["/api/preview/text", "https://example.com/a", null],
+    ["/api/preview/image", "https://batcave.biz/event/world-war-hulk/1", "batcave"],
+    ["/api/preview/image", "https://example.com/a", null],
+  ];
+  for (const [path, url, expected] of cases) {
+    const res = await app.inject({ method: "POST", url: path, payload: { url, recipe } });
+    assert.equal(res.statusCode, 200, `${path} ${url}`);
+    assert.equal(res.json().builtInRecipe, expected, `${path} ${url}`);
+  }
   await app.close();
 });
 

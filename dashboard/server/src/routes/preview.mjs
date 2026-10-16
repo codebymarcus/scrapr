@@ -2,6 +2,7 @@ import { Readable, Transform, pipeline } from "node:stream";
 import { imagePreview as defaultImagePreview } from "../../../../src/preview/image-preview.mjs";
 import { previewText as defaultPreviewText } from "../../../../src/preview/text-preview.mjs";
 import { runtimeUnenforcedImageRuleKeys } from "../../../../src/recipes/image-filter.mjs";
+import { resolveProfile } from "../../../../src/profiles/registry.mjs";
 import { createLogger } from "../../../../src/logger.mjs";
 import { getBrowser as defaultGetBrowser, previewConfig } from "../browser-pool.mjs";
 import { parseOr400, previewSchema } from "../schemas.mjs";
@@ -31,6 +32,13 @@ function capBytes(max) {
       cb(null, chunk);
     },
   });
+}
+
+// Name of the engine's built-in profile for this URL, or null when only the
+// generic fallback applies.
+function builtInRecipeFor(url) {
+  const profile = resolveProfile(url);
+  return profile && profile.name !== "generic" ? profile.name : null;
 }
 
 export async function previewRoutes(app, opts = {}) {
@@ -63,17 +71,25 @@ export async function previewRoutes(app, opts = {}) {
     const parsed = parseOr400(previewSchema, req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const { url, recipe } = parsed.data;
-    return runPreview(reply, (session) =>
-      previewText({ url, recipe, session, config: previewConfig(), logger, deps: opts.previewDeps }));
+    const builtInRecipe = builtInRecipeFor(url);
+    return runPreview(reply, async (session) => {
+      const result = await previewText({ url, recipe, session, config: previewConfig(), logger, deps: opts.previewDeps });
+      return { ...result, builtInRecipe };
+    });
   });
 
   app.post("/api/preview/image", async (req, reply) => {
     const parsed = parseOr400(previewSchema, req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const { url, recipe } = parsed.data;
+    const builtInRecipe = builtInRecipeFor(url);
     return runPreview(reply, async (session) => {
       const result = await imagePreview({ url, session, config: previewConfig(), logger, deps: opts.previewDeps });
-      return { ...result, unenforcedRuleKeys: runtimeUnenforcedImageRuleKeys(recipe.image?.rules) };
+      return {
+        ...result,
+        unenforcedRuleKeys: runtimeUnenforcedImageRuleKeys(recipe.image?.rules),
+        builtInRecipe,
+      };
     });
   });
 
