@@ -60,6 +60,21 @@ test("_runJobs: once stopping is set mid-job, finishes it and skips the rest", a
   assert.equal(statuses["https://x/1"], "done", "finished job's status was persisted");
 });
 
+test("stop(): public method stops the loop after the current job", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const ran = [];
+  runner._scrapeJob = async (session, job) => {
+    ran.push(job.url);
+    if (job.url === "https://x/1") runner.stop(); // public API, not _stopping
+    return { saved: 1, total: 1, complete: true };
+  };
+  const source = { hasStatus: false };
+  const jobs = [{ url: "https://x/1", status: "", row: 1 }, { url: "https://x/2", status: "", row: 2 }];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.deepEqual(ran, ["https://x/1"]);
+  assert.equal(runner.isStopping(), true);
+});
+
 test("_runJobs: runs every job when never stopped", async () => {
   const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
   const ran = [];

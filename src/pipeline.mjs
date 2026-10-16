@@ -178,6 +178,15 @@ export class BatchRunner {
     this._validate = deps.validate || validate;
   }
 
+  // Ask the loop to stop after the current job finishes. Idempotent.
+  stop() {
+    this._stopping = true;
+  }
+
+  isStopping() {
+    return this._stopping;
+  }
+
   // Returns a process exit code.
   async run() {
     const c = this.config;
@@ -227,7 +236,7 @@ export class BatchRunner {
         this.logger.warn("forcing exit.");
         process.exit(130);
       }
-      this._stopping = true;
+      this.stop();
       this.logger.warn("stopping after the current job finishes… (Ctrl-C again to force)");
     };
     process.on("SIGINT", onSigint);
