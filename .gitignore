@@ -29,3 +29,6 @@ x-men-115/
 
 # Visual brainstorming companion
 .superpowers/
+
+# Dashboard server runtime data (sqlite db, etc.)
+dashboard/server/data/
