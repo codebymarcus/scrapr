@@ -20,12 +20,18 @@ export type ApiClient = {
     path: string,
     options: { body?: unknown; schema: ZodType<T>; signal?: AbortSignal },
   ): Promise<T>;
+  /** POST multipart/form-data (file uploads). The browser sets the boundary. */
+  postForm<T>(
+    path: string,
+    options: { form: FormData; schema: ZodType<T>; signal?: AbortSignal },
+  ): Promise<T>;
   del(path: string, options?: { signal?: AbortSignal }): Promise<void>;
 };
 
 type RequestOptions = {
   method: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
+  form?: FormData;
   schema?: ZodType<unknown>;
   signal?: AbortSignal;
   params?: Params;
@@ -57,7 +63,7 @@ export function createApiClient(config: {
 
   async function request(
     path: string,
-    { method, body, schema, signal, params }: RequestOptions,
+    { method, body, form, schema, signal, params }: RequestOptions,
   ): Promise<unknown> {
     const query = params
       ? "?" +
@@ -71,7 +77,10 @@ export function createApiClient(config: {
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
     const init: RequestInit = { method, signal: requestSignal };
-    if (body !== undefined) {
+    if (form !== undefined) {
+      // Let the browser set the multipart Content-Type (with its boundary).
+      init.body = form;
+    } else if (body !== undefined) {
       init.headers = { "Content-Type": "application/json" };
       init.body = JSON.stringify(body);
     }
@@ -161,6 +170,13 @@ export function createApiClient(config: {
     return (await request(path, { method: "PUT", ...options })) as T;
   }
 
+  async function postForm<T>(
+    path: string,
+    options: { form: FormData; schema: ZodType<T>; signal?: AbortSignal },
+  ): Promise<T> {
+    return (await request(path, { method: "POST", ...options })) as T;
+  }
+
   async function del(
     path: string,
     options?: { signal?: AbortSignal },
@@ -168,5 +184,5 @@ export function createApiClient(config: {
     await request(path, { method: "DELETE", signal: options?.signal });
   }
 
-  return { get, post, put, del };
+  return { get, post, put, postForm, del };
 }

@@ -72,11 +72,18 @@ export function enqueueItems(
 }
 
 export function importList(
-  input: { path: string; runId?: number },
+  input: { file: File; runId?: number },
   client: ApiClient = dashboardClient,
 ): Promise<ImportResponse> {
-  return client.post("/api/runs/import", {
-    body: input,
+  const form = new FormData();
+  // Append runId before the file so it is parsed even if the server read fields
+  // in stream order; the server is also order-independent.
+  if (input.runId !== undefined) {
+    form.append("runId", String(input.runId));
+  }
+  form.append("file", input.file);
+  return client.postForm("/api/runs/import", {
+    form,
     schema: importResponseSchema,
   });
 }
