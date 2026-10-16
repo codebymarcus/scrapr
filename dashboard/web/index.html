@@ -16,10 +16,19 @@
           localStorage.getItem("scrapr-preferences") || "{}",
         );
 
-        const theme = preferences.state?.theme;
+        const state = preferences.state;
+        const root = document.documentElement;
 
-        if (theme === "light" || theme === "dark") {
-          document.documentElement.dataset.theme = theme;
+        if (state?.theme === "light" || state?.theme === "dark") {
+          root.dataset.theme = state.theme;
+        }
+
+        // Grain defaults to on (the attribute is in the markup above); only a
+        // saved `false` removes it, so there is no grain flash before React.
+        if (state?.grain === false) {
+          root.removeAttribute("data-grain");
+        } else if (state?.grain === true) {
+          root.setAttribute("data-grain", "");
         }
       } catch (error) {}
     </script>

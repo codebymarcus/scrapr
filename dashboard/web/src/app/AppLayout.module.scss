@@ -1,0 +1,21 @@
+@use "styles/settings/breakpoints" as bp;
+@use "styles/tools/media" as media;
+
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.content {
+  min-width: 0;
+}
+
+@include media.until(bp.$bp-controls) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+}
