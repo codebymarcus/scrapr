@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { SheetSource, UrlSource } from "../src/sources.mjs";
+import { SheetSource, StoreJobSource, UrlSource } from "../src/sources.mjs";
+
+const noopLogger = { info() {}, warn() {}, muted() {}, success() {}, error() {}, step() {}, progressBar() {} };
 
 async function withTempCsv(contents, fn) {
   const dir = await mkdtemp(path.join(tmpdir(), "scaper-src-"));
@@ -125,4 +127,23 @@ test("SheetSource: a user `note` column is not adopted as the reason column", as
     assert.match(text.split("\n")[0], /\breason\b/, "a reason column was appended");
     assert.match(text, /keep me/, "the user's note column is preserved, not overwritten");
   });
+});
+
+test("StoreJobSource.load maps store items to jobs with id", async () => {
+  const store = { async loadItems() { return [{ id: 7, url: "https://x/1", name: "One", status: "" }]; },
+                  setItemStatus() {}, setItemReason() {} };
+  const s = new StoreJobSource(store, "run1", noopLogger);
+  const jobs = await s.load();
+  assert.equal(s.hasStatus, true);
+  assert.deepEqual(jobs, [{ url: "https://x/1", name: "One", status: "", id: 7 }]);
+});
+
+test("StoreJobSource.setStatus/setReason forward by id and survive a throwing store", () => {
+  const calls = [];
+  const store = { loadItems() {}, setItemStatus: (id, v) => calls.push(["s", id, v]),
+                  setItemReason: () => { throw new Error("db busy"); } };
+  const s = new StoreJobSource(store, "run1", noopLogger);
+  s.setStatus({ id: 7 }, "done");
+  assert.doesNotThrow(() => s.setReason({ id: 7 }, "x")); // swallowed + warned
+  assert.deepEqual(calls, [["s", 7, "done"]]);
 });

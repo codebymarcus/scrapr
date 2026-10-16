@@ -120,6 +120,39 @@ export class SheetSource {
   }
 }
 
+// Jobs backed by an injected store (e.g. a database) rather than a file. The store supplies
+// `loadItems(runId)` → [{ id, url, name, status }] and `setItemStatus(id, value)` /
+// `setItemReason(id, text)`. Write failures are logged and swallowed, like SheetSource._save.
+export class StoreJobSource {
+  constructor(store, runId, logger) {
+    this.store = store;
+    this.runId = runId;
+    this.logger = logger;
+    this.hasStatus = true;
+  }
+
+  async load() {
+    const items = await this.store.loadItems(this.runId);
+    return items.map((item) => ({ url: item.url, name: item.name, status: item.status, id: item.id }));
+  }
+
+  setStatus(job, value) {
+    try {
+      this.store.setItemStatus(job.id, value);
+    } catch (e) {
+      this.logger?.warn(`couldn't save status for item ${job.id} (${e.message})`);
+    }
+  }
+
+  setReason(job, text) {
+    try {
+      this.store.setItemReason(job.id, text);
+    } catch (e) {
+      this.logger?.warn(`couldn't save reason for item ${job.id} (${e.message})`);
+    }
+  }
+}
+
 export function createJobSource(config, logger) {
   if (config.listFile) {
     if (!existsSync(config.listFile)) throw new Error(`list file not found: ${config.listFile}`);
