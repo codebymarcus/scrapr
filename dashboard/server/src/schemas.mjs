@@ -69,6 +69,9 @@ export const recipeSchema = z.object({
   image: imageSchema.optional(),
   output: outputSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // A built-in recipe is driven by the engine's own URL-matched profile, not by this recipe's data.
+  builtIn: z.boolean().optional(),
+  builtInProfile: z.string().optional(),
 });
 
 export const createProjectSchema = z.object({
