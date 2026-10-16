@@ -119,6 +119,12 @@ describe("preview + drive schemas", () => {
     ).toBe(true);
   });
 
+  it("keeps the code and message of a failed preview", () => {
+    const failed = { status: "fail", code: "HTTP_ERROR", message: "403" };
+    expect(previewImageSchema.parse(failed)).toMatchObject(failed);
+    expect(previewTextSchema.parse(failed)).toMatchObject(failed);
+  });
+
   it("accepts a drive status", () => {
     expect(driveStatusSchema.safeParse({ connected: false }).success).toBe(
       true,

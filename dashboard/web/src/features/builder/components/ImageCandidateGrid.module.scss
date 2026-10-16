@@ -1,0 +1,78 @@
+@use "styles/settings/breakpoints" as bp;
+@use "styles/tools/media" as media;
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  @include media.from(bp.$bp-grid-sm) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @include media.from(bp.$bp-grid-md) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border-color 120ms ease, opacity 120ms ease;
+}
+
+// Highlight is border + the "Rule keeps / drops" text, never color alone.
+.ruleKeeps {
+  border-color: var(--color-positive);
+}
+
+.ruleDrops {
+  opacity: 0.6;
+}
+
+.thumb,
+.placeholder {
+  display: block;
+  width: 100%;
+  height: 140px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+}
+
+.thumb {
+  object-fit: contain;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-border-strong);
+}
+
+.size,
+.verdict {
+  margin: 0;
+}
+
+.keep {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

@@ -116,6 +116,9 @@ export const previewTextSchema = z.object({
   via: z.string().optional(),
   mode: z.string().optional(),
   fields: z.unknown().optional(),
+  // Set when `status` is "fail", so the UI can say why.
+  code: z.string().optional(),
+  message: z.string().optional(),
 });
 
 export const previewImageSchema = z.object({
@@ -133,6 +136,9 @@ export const previewImageSchema = z.object({
     )
     .optional(),
   unenforcedRuleKeys: z.array(z.string()).optional(),
+  // Set when `status` is "fail", so the UI can say why.
+  code: z.string().optional(),
+  message: z.string().optional(),
 });
 
 export const driveStatusSchema = z.object({
@@ -180,6 +186,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export type Recipe = z.infer<typeof recipeSchema>;
+export type ImageRules = z.infer<typeof imageRulesSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type Run = z.infer<typeof runSchema>;
 export type RunItem = z.infer<typeof itemSchema>;

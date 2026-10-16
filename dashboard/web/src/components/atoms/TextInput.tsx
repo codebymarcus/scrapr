@@ -6,6 +6,7 @@ type TextInputProps = {
   onChange: (value: string) => void;
   type?: "text" | "search";
   placeholder?: string;
+  disabled?: boolean;
 };
 
 export function TextInput({
@@ -14,6 +15,7 @@ export function TextInput({
   onChange,
   type = "text",
   placeholder,
+  disabled,
 }: TextInputProps) {
   return (
     <input
@@ -22,6 +24,7 @@ export function TextInput({
       className={styles.input}
       value={value}
       placeholder={placeholder}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
     />
   );

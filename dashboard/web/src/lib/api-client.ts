@@ -1,5 +1,4 @@
+import { API_BASE } from "./api-base";
 import { createApiClient } from "./http/api-client";
 
-export const dashboardClient = createApiClient({
-  baseUrl: import.meta.env.VITE_API_BASE ?? "http://localhost:5174",
-});
+export const dashboardClient = createApiClient({ baseUrl: API_BASE });
