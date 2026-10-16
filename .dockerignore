@@ -1,0 +1,17 @@
+# Build context hygiene for the server image (context = repo root).
+.git
+.github
+.superpowers
+node_modules
+**/node_modules
+# The web app has its own build context (dashboard/web); the server never needs it.
+dashboard/web
+dashboard/server/data
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/dist
+docs
+*.log
+.env
+.DS_Store

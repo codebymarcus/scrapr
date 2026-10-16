@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp } from "./app.mjs";
 import { closeBrowser, getBrowser } from "./browser-pool.mjs";
-import { DATA_DIR, PORT } from "./config.mjs";
+import { DATA_DIR, HOST, PORT } from "./config.mjs";
 import { openDb } from "./db/db.mjs";
 import { migrate } from "./db/migrations.mjs";
 import { createStore } from "./db/store.mjs";
@@ -76,8 +76,8 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 try {
-  await app.listen({ port: PORT, host: "127.0.0.1" });
-  console.log(`dashboard server listening on http://127.0.0.1:${PORT}`);
+  await app.listen({ port: PORT, host: HOST });
+  console.log(`dashboard server listening on http://${HOST}:${PORT}`);
 } catch (err) {
   console.error(err);
   process.exit(1);
