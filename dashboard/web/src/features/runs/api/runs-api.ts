@@ -76,10 +76,12 @@ export function importList(
   client: ApiClient = dashboardClient,
 ): Promise<ImportResponse> {
   const form = new FormData();
-  form.append("file", input.file);
+  // Append runId before the file so it is parsed even if the server read fields
+  // in stream order; the server is also order-independent.
   if (input.runId !== undefined) {
     form.append("runId", String(input.runId));
   }
+  form.append("file", input.file);
   return client.postForm("/api/runs/import", {
     form,
     schema: importResponseSchema,

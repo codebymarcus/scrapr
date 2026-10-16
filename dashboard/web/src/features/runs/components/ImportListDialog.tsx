@@ -192,6 +192,7 @@ export function ImportListDialog({
               type="file"
               accept=".csv,.tsv,.txt,.xlsx,.xls"
               className={styles.fileInput}
+              disabled={locked}
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null);
                 // A different sheet invalidates the URLs read from the last one.

@@ -1,6 +1,6 @@
 import { readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveRecordBase } from "../../../../src/naming.mjs";
 import { DATA_DIR } from "../config.mjs";
@@ -96,39 +96,48 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
   // temp file (keeping its extension so the engine parses it correctly), parsed,
   // and deleted — the server never reads an arbitrary caller-supplied path.
   app.post("/api/runs/import", async (request, reply) => {
-    let data;
+    // Consume the whole multipart stream first so field order doesn't matter: a
+    // `runId` field after the file part is only parsed once the file is read.
+    let buffer = null;
+    let filename = "";
+    let truncated = false;
+    let rawRunId;
     try {
-      data = await request.file();
+      for await (const part of request.parts()) {
+        if (part.type === "file") {
+          if (buffer === null) {
+            buffer = await part.toBuffer();
+            filename = part.filename || "";
+            truncated = part.file.truncated;
+          } else {
+            await part.toBuffer().catch(() => {}); // drain any extra file
+          }
+        } else if (part.fieldname === "runId") {
+          rawRunId = part.value;
+        }
+      }
     } catch (err) {
       return reply.code(400).send({ error: `Invalid upload: ${err.message}` });
     }
-    if (!data) return reply.code(400).send({ error: "Upload a spreadsheet file (field name 'file')" });
 
-    const ext = extname(data.filename || "").toLowerCase();
-    if (!SHEET_EXT.test(data.filename || "")) {
-      // Drain the stream so the request completes cleanly before responding.
-      await data.toBuffer().catch(() => {});
+    if (buffer === null) {
+      return reply.code(400).send({ error: "Upload a spreadsheet file (field name 'file')" });
+    }
+    const extMatch = SHEET_EXT.exec(filename);
+    if (!extMatch) {
       return reply.code(400).send({ error: "Unsupported file type (use csv, tsv, txt, xlsx or xls)" });
     }
+    const ext = extMatch[0].toLowerCase();
+    if (truncated) {
+      return reply.code(413).send({ error: "Uploaded file is too large" });
+    }
 
-    const rawRunId = data.fields?.runId?.value;
     let runId;
     if (rawRunId !== undefined && rawRunId !== "") {
       runId = Number(rawRunId);
       if (!Number.isInteger(runId) || runId <= 0) {
-        await data.toBuffer().catch(() => {});
         return reply.code(400).send({ error: "runId must be a positive integer" });
       }
-    }
-
-    let buffer;
-    try {
-      buffer = await data.toBuffer();
-    } catch (err) {
-      return reply.code(400).send({ error: `Could not read upload: ${err.message}` });
-    }
-    if (data.file.truncated) {
-      return reply.code(413).send({ error: "Uploaded file is too large" });
     }
 
     let run = null;

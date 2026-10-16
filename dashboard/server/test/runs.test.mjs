@@ -211,6 +211,34 @@ test("import validates the upload (missing file, bad type, size cap)", async () 
   await teardown(ctx);
 });
 
+test("import honors runId even when the field follows a large file part", async () => {
+  // inject delivers the body in one chunk, so this ordering bug only shows over
+  // a real socket: the file part precedes runId and is large enough to be
+  // chunked, so a naive read of fields-after-request.file() would miss runId.
+  const ctx = setup();
+  const { app, store, project } = ctx;
+  const { body } = await createRun(app, project.id);
+  const lines = Array.from({ length: 4000 }, (_, i) => `https://example.com/page-${i}`);
+  const bigCsv = `url\n${lines.join("\n")}\n`;
+
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  try {
+    const { port } = app.server.address();
+    const form = new FormData();
+    form.append("file", new Blob([bigCsv], { type: "text/csv" }), "big.csv");
+    form.append("runId", String(body.run.id)); // deliberately AFTER the file
+    const res = await fetch(`http://127.0.0.1:${port}/api/runs/import`, {
+      method: "POST",
+      body: form,
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).added, lines.length);
+    assert.equal(store.listItems(body.run.id).length, lines.length);
+  } finally {
+    await teardown(ctx);
+  }
+});
+
 test("import rejects an oversized upload with 413", async () => {
   const ctx = setup({ uploadMaxBytes: 32 });
   const big = `url\n${"https://example.com/".repeat(20)}\n`;
