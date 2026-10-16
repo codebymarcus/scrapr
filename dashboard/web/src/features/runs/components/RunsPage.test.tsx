@@ -4,7 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
-import { makeFakeClient, makeItem, makeRun } from "../test/fixtures";
+import {
+  makeFakeClient,
+  makeItem,
+  makeProject,
+  makeRun,
+} from "../test/fixtures";
 import { RunsPage } from "./RunsPage";
 
 // Never connects, so no real WebSocket is opened from jsdom.
@@ -193,6 +198,28 @@ describe("RunsPage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Import list" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the new-run and import dialogs from the header", async () => {
+    renderPage(
+      makeFakeClient({
+        "/api/runs": { runs: [] },
+        "/api/projects": { projects: [makeProject({ id: 1 })] },
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ New run" }),
+    );
+    expect(screen.getByRole("dialog", { name: "New run" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Import list" }));
+    expect(
+      screen.getByRole("dialog", { name: "Import list" }),
     ).toBeInTheDocument();
   });
 });

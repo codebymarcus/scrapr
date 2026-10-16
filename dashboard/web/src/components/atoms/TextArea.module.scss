@@ -1,0 +1,9 @@
+@use "styles/objects/form-control" as form-control;
+
+.textarea {
+  @include form-control.form-control;
+  min-height: 120px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  resize: vertical;
+}

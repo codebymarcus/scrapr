@@ -10,6 +10,8 @@ import { useRunProgress } from "../hooks/use-run-progress";
 import { useRuns } from "../hooks/use-runs";
 import { groupRuns, isSameLocalDay } from "../utils";
 import { RunCard } from "./RunCard";
+import { ImportListDialog } from "./ImportListDialog";
+import { NewRunDialog } from "./NewRunDialog";
 import { RunGroup } from "./RunGroup";
 import { StatStrip } from "./StatStrip";
 import styles from "./RunsPage.module.scss";
@@ -55,13 +57,15 @@ export function RunsPage({
     client,
   );
 
-  // New run / Import list dialogs arrive with the run-controls task.
+  const [dialog, setDialog] = useState<"new" | "import" | null>(null);
+  const closeDialog = useCallback(() => setDialog(null), []);
+
   const headerActions = (
     <>
-      <Button variant="primary" onClick={() => {}}>
+      <Button variant="primary" onClick={() => setDialog("new")}>
         + New run
       </Button>
-      <Button onClick={() => {}}>Import list</Button>
+      <Button onClick={() => setDialog("import")}>Import list</Button>
     </>
   );
 
@@ -151,6 +155,12 @@ export function RunsPage({
       actions={headerActions}
     >
       {renderBody()}
+      {dialog === "new" ? (
+        <NewRunDialog client={client} onClose={closeDialog} />
+      ) : null}
+      {dialog === "import" ? (
+        <ImportListDialog client={client} onClose={closeDialog} />
+      ) : null}
     </PageLayout>
   );
 }
