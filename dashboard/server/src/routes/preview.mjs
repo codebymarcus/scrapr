@@ -109,8 +109,9 @@ export async function previewRoutes(app, opts = {}) {
     if (!upstream.ok) return reject(502, `upstream responded ${upstream.status}`);
     const type = upstream.headers.get("content-type") || "";
     if (!/^image\//i.test(type)) return reject(415, "upstream is not an image");
-    const length = Number(upstream.headers.get("content-length"));
-    if (Number.isFinite(length) && length > maxBytes) return reject(413, "image too large");
+    // A missing Content-Length (chunked) is null, which must not be read as 0.
+    const declared = upstream.headers.get("content-length");
+    if (declared !== null && Number(declared) > maxBytes) return reject(413, "image too large");
     if (!upstream.body) return reject(502, "upstream returned no body");
 
     // Stream (never buffer): the cap transform errors past `maxBytes`;
@@ -128,7 +129,9 @@ export async function previewRoutes(app, opts = {}) {
     reply.header("content-type", type);
     reply.header("cache-control", "private, max-age=300");
     reply.header("x-content-type-options", "nosniff");
-    if (Number.isFinite(length)) reply.header("content-length", String(length));
+    // Never forward upstream Content-Length: fetch decodes gzip/br bodies (so
+    // it would be the compressed size) and chunked upstreams have none. The
+    // streamed response sets its own framing.
     return reply.send(stream);
   });
 }

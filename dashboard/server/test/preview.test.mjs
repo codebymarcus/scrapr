@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
+import { gzipSync } from "node:zlib";
 import { buildApp } from "../src/app.mjs";
 import { createBrowserPool } from "../src/browser-pool.mjs";
 
@@ -258,4 +260,78 @@ test("browser pool retries after a failed launch", async () => {
   });
   await assert.rejects(pool.getBrowser(), /no chromium/);
   assert.ok(await pool.getBrowser());
+});
+
+// Real sockets: light-my-request ignores declared lengths, so framing bugs
+// (e.g. forwarding upstream Content-Length) only show up over HTTP.
+async function withUpstream(handler, run, depsExtra = {}) {
+  const upstream = http.createServer(handler);
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const app = buildApp(depsExtra);
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const target = `http://127.0.0.1:${upstream.address().port}/img.png`;
+  const proxied = `http://127.0.0.1:${app.server.address().port}/api/thumb?url=${encodeURIComponent(target)}`;
+  try {
+    await run(proxied);
+  } finally {
+    await app.close();
+    upstream.closeAllConnections();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+}
+
+test("thumb (real sockets): chunked upstream with no Content-Length is fully proxied", async () => {
+  const source = Buffer.from(Array.from({ length: 5000 }, (_, i) => i % 251));
+  await withUpstream(
+    (req, res) => {
+      res.writeHead(200, { "content-type": "image/png" }); // no content-length -> chunked
+      res.write(source.subarray(0, 1000));
+      setTimeout(() => res.end(source.subarray(1000)), 10);
+    },
+    async (url) => {
+      const res = await fetch(url);
+      assert.equal(res.status, 200);
+      assert.notEqual(res.headers.get("content-length"), "0");
+      const body = Buffer.from(await res.arrayBuffer());
+      assert.equal(body.length, source.length);
+      assert.ok(body.equals(source));
+    },
+  );
+});
+
+test("thumb (real sockets): gzip-encoded upstream comes through fully decoded", async () => {
+  const source = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg">' + "<g/>".repeat(2000) + "</svg>");
+  const gz = gzipSync(source);
+  assert.ok(gz.length < source.length);
+  await withUpstream(
+    (req, res) => {
+      res.writeHead(200, {
+        "content-type": "image/svg+xml",
+        "content-encoding": "gzip",
+        "content-length": String(gz.length),
+      });
+      res.end(gz);
+    },
+    async (url) => {
+      const res = await fetch(url);
+      assert.equal(res.status, 200);
+      const declared = res.headers.get("content-length");
+      assert.notEqual(declared, String(gz.length));
+      const body = Buffer.from(await res.arrayBuffer());
+      assert.ok(body.equals(source));
+    },
+  );
+});
+
+test("thumb (real sockets): declared oversize upstream gets 413", async () => {
+  await withUpstream(
+    (req, res) => {
+      res.writeHead(200, { "content-type": "image/png", "content-length": "5000" });
+      res.end(Buffer.alloc(5000));
+    },
+    async (url) => {
+      assert.equal((await fetch(url)).status, 413);
+    },
+    { thumbMaxBytes: 100 },
+  );
 });
