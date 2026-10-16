@@ -303,3 +303,27 @@ test("an orphan queued row (state cannot be persisted) is not re-picked forever"
   assert.equal(await mgr.start(run.id), "done");
   db.close();
 });
+
+test("after shutdown(), stopping the active run does not auto-start the queued run", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const r1 = makeRun(["https://e.com/1"]);
+  const r2 = makeRun(["https://e.com/2"]);
+  const gate = deferred();
+  const factory = fakeFactory(async () => {
+    await gate.promise;
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const p1 = mgr.start(r1.id);
+  assert.equal(await mgr.start(r2.id), "queued");
+
+  mgr.shutdown();
+  assert.equal(mgr.stop(r1.id), true);
+  gate.resolve();
+  assert.equal(await p1, "stopped");
+  await mgr.idle(); // resolves: there is no newly started run to wait on
+  assert.equal(factory.created.length, 1);
+  assert.equal(store.getRun(r2.id).state, "queued");
+  assert.equal(mgr.activeRunId(), null);
+  db.close();
+});

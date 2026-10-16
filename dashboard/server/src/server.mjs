@@ -51,6 +51,8 @@ async function shutdown(signal) {
       console.error(err);
     }
   };
+  // First thing: no queued run may be auto-started while we wind down.
+  await step(() => runManager.shutdown());
   await step(() => app.close());
   // Stop an in-flight scrape so it can record its state before the db closes.
   await step(async () => {

@@ -26,6 +26,8 @@ export function createRunManager({
   // Runs that failed to leave `queued` (finish() could not persist a terminal
   // state). The auto-drain skips them so a broken row cannot be re-picked forever.
   const orphans = new Set();
+  // Set by shutdown(): the queue is no longer auto-drained.
+  let draining = false;
 
   function safeEmit(runId, event) {
     try {
@@ -117,6 +119,7 @@ export function createRunManager({
   }
 
   function startNextQueued() {
+    if (draining) return null;
     let next = null;
     try {
       next = store.nextQueuedRun();
@@ -169,6 +172,11 @@ export function createRunManager({
         return true;
       }
       return false;
+    },
+    // Stops the auto-drain for good (graceful shutdown): runs left queued stay
+    // queued, so idle() only ever waits on the already-active run.
+    shutdown() {
+      draining = true;
     },
     activeRunId() {
       return active ? active.runId : null;
