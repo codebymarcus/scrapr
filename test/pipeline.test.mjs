@@ -1,7 +1,7 @@
 // Pipeline helpers: skip reasoning and the --dry-run preview.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { skipReason, describeDryRun, decideOutcome, BatchRunner, scrapeJob } from "../src/pipeline.mjs";
+import { skipReason, describeDryRun, decideOutcome, BatchRunner, scrapeJob, applyImageDimensionRules } from "../src/pipeline.mjs";
 
 const noopLogger = {
   info() {}, warn() {}, muted() {}, verbose() {}, success() {}, error() {}, step() {}, section() {}, progressBar() {}
@@ -58,6 +58,21 @@ test("_runJobs: once stopping is set mid-job, finishes it and skips the rest", a
   await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
   assert.deepEqual(ran, ["https://x/1"], "job 1 finished, job 2 not started");
   assert.equal(statuses["https://x/1"], "done", "finished job's status was persisted");
+});
+
+test("stop(): public method stops the loop after the current job", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const ran = [];
+  runner._scrapeJob = async (session, job) => {
+    ran.push(job.url);
+    if (job.url === "https://x/1") runner.stop(); // public API, not _stopping
+    return { saved: 1, total: 1, complete: true };
+  };
+  const source = { hasStatus: false };
+  const jobs = [{ url: "https://x/1", status: "", row: 1 }, { url: "https://x/2", status: "", row: 2 }];
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null });
+  assert.deepEqual(ran, ["https://x/1"]);
+  assert.equal(runner.isStopping(), true);
 });
 
 test("_runJobs: runs every job when never stopped", async () => {
@@ -371,4 +386,20 @@ test("_runJobs: article text job still routes to _scrapeText (no record writer n
   const source = { hasStatus: false, setStatus() {}, setReason() {} };
   await runner._runJobs({ jobs: [{ url: "https://x/a", status: "" }], source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
   assert.deepEqual(calls, ["https://x/a"]);
+});
+
+test("applyImageDimensionRules drops undersized images only when rules set", async () => {
+  const imgs = [{ url: "a", buffer: Buffer.from("A") }, { url: "b", buffer: Buffer.from("B") }];
+  const dimsOf = (buf) => (buf.toString() === "A" ? { width: 1200, height: 800 } : { width: 50, height: 50 });
+  const kept = await applyImageDimensionRules(imgs, { minWidth: 500 }, { dimsOf });
+  assert.deepEqual(kept.map((i) => i.url), ["a"]);
+  const all = await applyImageDimensionRules(imgs, null, { dimsOf });
+  assert.equal(all.length, 2); // no rules → unchanged
+});
+
+test("applyImageDimensionRules ignores non-dimension rules and never decodes without them", async () => {
+  const imgs = [{ url: "a", buffer: Buffer.from("A") }];
+  const dimsOf = () => { throw new Error("should not decode"); };
+  const out = await applyImageDimensionRules(imgs, { excludeUrl: "/ad/" }, { dimsOf });
+  assert.equal(out, imgs);
 });

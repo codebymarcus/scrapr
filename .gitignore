@@ -26,3 +26,6 @@ out/
 
 # Ad-hoc scrape output (extracted comic pages)
 x-men-115/
+
+# Visual brainstorming companion
+.superpowers/

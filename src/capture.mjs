@@ -2,6 +2,7 @@
 // filtering (host / min size / chapter-directory lock) and rate-limit detection.
 // It never drives the page — the ReaderDriver does — it only listens.
 import { pageNumberFromUrl } from "./processor.mjs";
+import { filterImages } from "./recipes/image-filter.mjs";
 
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
 
@@ -148,6 +149,22 @@ export class ImageCapture {
       if (!isNumberedPage && body.length < minBytes) {
         this.logger.verbose?.(`skipped (below minBytes ${body.length}<${minBytes}, not a numbered page): ${u}`);
         return;
+      }
+
+      // Recipe image rules (opt-in): apply only the URL/bytes-evaluable subset here;
+      // dimension rules need decoded pixels and run later in the pipeline. Absent
+      // imageRules → this block is skipped and behaviour is unchanged.
+      // selector/position rules are intentionally not applied at run (see runtimeUnenforcedImageRuleKeys).
+      if (this.config.imageRules) {
+        const { includeUrl, excludeUrl, minBytes: ruleMinBytes } = this.config.imageRules;
+        const urlRules = {};
+        if (includeUrl !== undefined) urlRules.includeUrl = includeUrl;
+        if (excludeUrl !== undefined) urlRules.excludeUrl = excludeUrl;
+        if (ruleMinBytes !== undefined) urlRules.minBytes = ruleMinBytes;
+        if (filterImages([{ url: u, bytes: body.length }], urlRules).length === 0) {
+          this.logger.verbose?.(`skipped (image rules): ${u}`);
+          return;
+        }
       }
 
       // Lock onto the first large image's directory so preloaded neighbouring
