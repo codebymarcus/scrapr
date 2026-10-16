@@ -18,6 +18,12 @@
 //   - An unset rule value (undefined, null, or "" for string rules) is ignored. An empty
 //     string would otherwise match every candidate, and excludeSelector "" would drop all.
 //
+// Run-time enforcement boundary: at RUN time only url/bytes rules (capture) and
+// minWidth/minHeight (pipeline) are enforced. includeSelector, excludeSelector, and
+// position are PREVIEW-ONLY: they need DOM correlation that a run does not have, so they
+// are NOT applied during a run. runtimeUnenforcedImageRuleKeys(rules) reports which of
+// those keys a recipe sets so callers can surface the gap instead of failing silently.
+//
 // Pure: no I/O, no dependencies.
 
 const isSet = (value) => value !== undefined && value !== null && value !== "";
@@ -57,6 +63,14 @@ function buildPredicate(rules) {
   }
 
   return (candidate) => checks.every((check) => check(candidate));
+}
+
+const RUNTIME_UNENFORCED_KEYS = ["includeSelector", "excludeSelector", "position"];
+
+// Which preview-only rule keys are set in `rules` (not enforced at run time).
+export function runtimeUnenforcedImageRuleKeys(rules) {
+  if (!rules) return [];
+  return RUNTIME_UNENFORCED_KEYS.filter((key) => isSet(rules[key]));
 }
 
 // Keep only the candidates that satisfy every rule in `rules`.

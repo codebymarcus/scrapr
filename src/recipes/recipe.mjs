@@ -32,7 +32,7 @@ export function recipeToProfile(recipe) {
     contentType: recipe.contentType,
     ...(recipe.text ? { text: recipe.text } : {}),
     pipeline,
-    metadata: recipe.metadata ?? {}
+    metadata: recipe.metadata ?? {},
   };
 }
 

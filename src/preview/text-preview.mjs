@@ -5,6 +5,7 @@
 import { acquireAndExtract as defaultAcquire } from "../text/acquire.mjs";
 import { buildOpts, resolveMode } from "../text/scrape-text.mjs";
 import { recipeToProfile } from "../recipes/recipe.mjs";
+import { FailureCode } from "../strategies/strategy.mjs";
 
 // Order `entries` ([name, value]) by `declared` names first, then the rest in
 // their original (payload) order. Declared names absent from the payload are skipped.
@@ -45,7 +46,7 @@ export async function previewText({ url, recipe, session, config, logger, deps =
     mode = resolveMode(config || {}, profile);
     opts = buildOpts(mode, config || {}, profile);
   } catch (err) {
-    return { status: "fail", code: "INVALID_RECIPE", message: err.message };
+    return { status: "fail", code: FailureCode.PARSER_ERROR, message: err.message };
   }
   const res = await acquire({ url, mode, opts, session, config, logger, deps });
   if (res.status !== "ok") return { status: "fail", code: res.code };

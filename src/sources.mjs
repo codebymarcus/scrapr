@@ -123,6 +123,11 @@ export class SheetSource {
 // Jobs backed by an injected store (e.g. a database) rather than a file. The store supplies
 // `loadItems(runId)` → [{ id, url, name, status }] and `setItemStatus(id, value)` /
 // `setItemReason(id, text)`. Write failures are logged and swallowed, like SheetSource._save.
+//
+// Contract: store.setItemStatus / store.setItemReason MUST be SYNCHRONOUS. The try/catch
+// below only catches a synchronous throw; it cannot catch a rejection from a returned
+// Promise, and `_runJobs` does not await these calls. The real backend store must write
+// synchronously (or wrap its async writes internally and handle their own errors).
 export class StoreJobSource {
   constructor(store, runId, logger) {
     this.store = store;

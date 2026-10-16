@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterImages } from "../src/recipes/image-filter.mjs";
+import { filterImages, runtimeUnenforcedImageRuleKeys } from "../src/recipes/image-filter.mjs";
 
 const C = [
   { url: "https://x/hero.jpg", width: 1200, height: 800, selector: "div.reader img", index: 0 },
@@ -58,4 +58,20 @@ test("filterImages: a missing numeric field does not affect rules that do not re
 
 test("filterImages: rules are ANDed", () => {
   assert.deepEqual(filterImages(C, { minWidth: 100, minHeight: 300 }).map((c) => c.index), [0]);
+});
+
+test("runtimeUnenforcedImageRuleKeys: lists preview-only rule keys that are set", () => {
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys({ excludeSelector: ".ad", minWidth: 500 }), ["excludeSelector"]);
+  assert.deepEqual(
+    runtimeUnenforcedImageRuleKeys({ includeSelector: "img", excludeSelector: ".ad", position: { from: 1 } }),
+    ["includeSelector", "excludeSelector", "position"],
+  );
+});
+
+test("runtimeUnenforcedImageRuleKeys: enforced-only, empty, unset, and null rules give []", () => {
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys({ minWidth: 500 }), []);
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys({ excludeSelector: "" }), []);
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys({}), []);
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys(null), []);
+  assert.deepEqual(runtimeUnenforcedImageRuleKeys(undefined), []);
 });

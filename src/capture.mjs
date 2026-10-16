@@ -154,6 +154,7 @@ export class ImageCapture {
       // Recipe image rules (opt-in): apply only the URL/bytes-evaluable subset here;
       // dimension rules need decoded pixels and run later in the pipeline. Absent
       // imageRules → this block is skipped and behaviour is unchanged.
+      // selector/position rules are intentionally not applied at run (see runtimeUnenforcedImageRuleKeys).
       if (this.config.imageRules) {
         const { includeUrl, excludeUrl, minBytes: ruleMinBytes } = this.config.imageRules;
         const urlRules = {};

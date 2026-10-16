@@ -100,6 +100,7 @@ async function sharpDimsOf(buffer) {
 // unknown dimensions and fails a dimension rule (matching filterImages).
 export async function applyImageDimensionRules(images, rules, { dimsOf = sharpDimsOf } = {}) {
   if (!rules) return images;
+  // selector/position rules are intentionally not applied at run (see runtimeUnenforcedImageRuleKeys).
   const { minWidth, minHeight } = rules;
   const dimRules = {};
   if (minWidth !== undefined) dimRules.minWidth = minWidth;

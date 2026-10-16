@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { previewText } from "../src/preview/text-preview.mjs";
+import { FailureCode } from "../src/strategies/strategy.mjs";
 
 const noopLogger = { info() {}, warn() {}, muted() {}, success() {}, error() {}, step() {}, progressBar() {} };
 
@@ -64,5 +65,5 @@ test("previewText returns a fail result for an invalid pattern spec", async () =
     patterns: ["bogus"] } },
     session: {}, config: {}, logger: noopLogger, deps: { acquireAndExtract: async () => { throw new Error("unreachable"); } } });
   assert.equal(res.status, "fail");
-  assert.equal(res.code, "INVALID_RECIPE");
+  assert.equal(res.code, FailureCode.PARSER_ERROR);
 });

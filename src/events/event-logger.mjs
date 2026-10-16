@@ -12,6 +12,9 @@ const TEXT_METHODS = [
 
 const toText = (m) => (typeof m === "string" ? m : m?.message || String(m));
 
+// Contract: the injected `emit` MUST be SYNCHRONOUS. Only a synchronous throw is swallowed
+// below; a returned rejected Promise would escape (unhandled rejection) because the result
+// is neither awaited nor caught. An async transport must handle its own errors internally.
 export function createEventLogger(emit, base = null) {
   const send = (event) => {
     try {
