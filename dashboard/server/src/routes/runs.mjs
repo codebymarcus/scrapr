@@ -32,7 +32,9 @@ export function defaultRunOutDir(run) {
 }
 
 async function readTextRecords(outDir) {
-  const base = resolveRecordBase({ out: outDir, listFile: true });
+  // Must match the engine's write path: the run config leaves listFile/textName
+  // null, so RecordWriter writes `${resolveRecordBase(config)}.json` = `${outDir}.json`.
+  const base = resolveRecordBase({ out: outDir });
   try {
     const parsed = JSON.parse(await readFile(`${base}.json`, "utf8"));
     return Array.isArray(parsed) ? parsed : [];

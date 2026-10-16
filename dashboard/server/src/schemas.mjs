@@ -62,7 +62,7 @@ const outputSchema = z.object({
 });
 
 export const recipeSchema = z.object({
-  name: z.string(),
+  name: z.string().min(1),
   contentType: z.enum(["image", "text"]),
   match: z.object({ hosts: z.array(z.string()).optional() }).optional(),
   text: textSchema.optional(),
@@ -87,7 +87,7 @@ export const createRunSchema = z.object({
 });
 
 export const enqueueSchema = z.object({
-  urls: z.array(httpUrl),
+  urls: z.array(httpUrl).min(1),
 });
 
 export const previewSchema = z.object({

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isAbsolute } from "node:path";
 import { buildRunConfig } from "../src/build-run-config.mjs";
+import { resolveRecordBase } from "../../../src/naming.mjs";
 import { DEFAULTS } from "../../../src/config.mjs";
 
 test("image recipe maps rules and output settings", () => {
@@ -68,4 +69,15 @@ test("does not mutate DEFAULTS", () => {
   assert.equal(DEFAULTS.text, false);
   assert.equal(DEFAULTS.out, null);
   assert.deepEqual(DEFAULTS.textPatterns, []);
+});
+
+test("contract: record base the engine writes equals the base the results route reads", () => {
+  const outDir = "/data/runs/7";
+  const runConfig = buildRunConfig({ name: "T", contentType: "text", text: { mode: "article" } }, { runOutDir: outDir });
+  // Engine write path: pipeline.mjs -> new RecordWriter(resolveRecordBase(config)) -> `${base}.json`.
+  // Route read path (routes/runs.mjs readTextRecords): resolveRecordBase({ out: outDir }).
+  assert.equal(runConfig.listFile, null);
+  assert.equal(runConfig.textName ?? null, null);
+  assert.equal(resolveRecordBase(runConfig), resolveRecordBase({ out: outDir }));
+  assert.equal(resolveRecordBase(runConfig), outDir);
 });

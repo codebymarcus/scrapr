@@ -92,6 +92,8 @@ test("enqueueSchema accepts http(s) urls", () => {
 });
 
 test("enqueueSchema rejects a non-http url", () => {
+  assert.equal(enqueueSchema.safeParse({ urls: [] }).success, false);
+  assert.equal(recipeSchema.safeParse({ name: "", contentType: "image" }).success, false);
   assert.equal(enqueueSchema.safeParse({ urls: ["ftp://a.com/x"] }).success, false);
   assert.equal(enqueueSchema.safeParse({ urls: ["javascript:alert(1)"] }).success, false);
   assert.equal(enqueueSchema.safeParse({ urls: ["not a url"] }).success, false);

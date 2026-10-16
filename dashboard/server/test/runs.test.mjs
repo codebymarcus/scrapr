@@ -117,6 +117,8 @@ test("enqueue into a running run is 409; done run is 409; missing run is 404", a
     (await app.inject({ method: "POST", url: "/api/runs/999/items", payload })).statusCode,
     404,
   );
+  const emptyList = await app.inject({ method: "POST", url: `/api/runs/${body.run.id}/items`, payload: { urls: [] } });
+  assert.equal(emptyList.statusCode, 400);
   const bad = await app.inject({ method: "POST", url: `/api/runs/${body.run.id}/items`, payload: { urls: ["ftp://x"] } });
   assert.equal(bad.statusCode, 400);
   await teardown(ctx);
@@ -178,12 +180,13 @@ test("text results: records when file exists, empty when absent", async () => {
   assert.equal(empty.statusCode, 200);
   assert.deepEqual(empty.json(), { contentType: "text", records: [] });
 
-  mkdirSync(join(outRoot, String(id)), { recursive: true });
-  writeFileSync(join(outRoot, String(id), "results.json"), JSON.stringify([{ url: "https://example.com/a", title: "A" }]));
+  // The engine's RecordWriter writes `${outDir}.json` (a sibling of the run dir).
+  mkdirSync(outRoot, { recursive: true });
+  writeFileSync(`${join(outRoot, String(id))}.json`, JSON.stringify([{ url: "https://example.com/a", title: "A" }]));
   const full = await app.inject({ method: "GET", url: `/api/runs/${id}/results` });
   assert.deepEqual(full.json().records, [{ url: "https://example.com/a", title: "A" }]);
 
-  writeFileSync(join(outRoot, String(id), "results.json"), "{not json");
+  writeFileSync(`${join(outRoot, String(id))}.json`, "{not json");
   const corrupt = await app.inject({ method: "GET", url: `/api/runs/${id}/results` });
   assert.equal(corrupt.statusCode, 200);
   assert.deepEqual(corrupt.json().records, []);
