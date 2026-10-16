@@ -1,0 +1,45 @@
+# Production-style stack: one command brings up the whole dashboard.
+#
+#   docker compose up --build
+#
+# Then open http://localhost:8080  (change the port with WEB_PORT=...; if you
+# serve it on another host/port, also set PUBLIC_API_BASE / PUBLIC_WS_BASE to
+# that same origin so the built SPA points at it).
+name: scrapr
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: dashboard/server/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: "5174"
+      NODE_ENV: production
+    volumes:
+      # Queue DB + run outputs survive restarts.
+      - scrapr-data:/app/dashboard/server/data
+      # Google Drive (optional): run `node authorize.mjs` on the host to create
+      # credentials.json + token.json, then uncomment these to mount them in.
+      # - ./credentials.json:/app/credentials.json:ro
+      # - ./token.json:/app/token.json:ro
+    expose:
+      - "5174"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./dashboard/web
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        VITE_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8080}
+        VITE_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost:8080}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  scrapr-data:

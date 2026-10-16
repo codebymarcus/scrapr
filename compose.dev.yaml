@@ -1,0 +1,45 @@
+# Dev override: hot-reloading stack. Layer it on top of compose.yaml:
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up --build
+#
+# Then open http://localhost:5173 (Vite). Vite proxies /api (incl. the
+# WebSocket) to the server over the compose network, so the SPA stays
+# same-origin. Source is bind-mounted, so edits reload live:
+#   - web:    Vite HMR
+#   - server: `node --watch` restarts on change
+# The server is also exposed on :5174 for direct API poking.
+services:
+  server:
+    build:
+      context: .
+      dockerfile: dashboard/server/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: "5174"
+      NODE_ENV: development
+    command: ["node", "--watch", "dashboard/server/src/server.mjs"]
+    volumes:
+      - ./src:/app/src
+      - ./scrape.mjs:/app/scrape.mjs
+      - ./dashboard/server/src:/app/dashboard/server/src
+      - scrapr-data:/app/dashboard/server/data
+    ports:
+      - "5174:5174"
+
+  web:
+    build:
+      context: ./dashboard/web
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      # Vite dev-proxies /api to the server service; the SPA stays same-origin.
+      VITE_PROXY_TARGET: http://server:5174
+      VITE_API_BASE: http://localhost:5173
+      VITE_WS_BASE: ws://localhost:5173
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    volumes:
+      - ./dashboard/web/src:/app/src
+      - ./dashboard/web/index.html:/app/index.html
+      - ./dashboard/web/vite.config.ts:/app/vite.config.ts
+    ports:
+      - "5173:5173"
