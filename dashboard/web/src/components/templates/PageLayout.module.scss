@@ -1,0 +1,16 @@
+@use "styles/settings/breakpoints" as bp;
+@use "styles/tools/media" as media;
+
+.main {
+  width: min(100% - var(--space-8), 1100px);
+  margin-inline: auto;
+  padding-block: var(--space-9);
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+@include media.until(bp.$bp-toolbar) {
+  .main {
+    padding-block: var(--space-6);
+  }
+}

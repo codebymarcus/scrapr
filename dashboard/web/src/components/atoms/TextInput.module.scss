@@ -1,0 +1,6 @@
+@use "styles/objects/form-control" as form-control;
+
+.input {
+  @include form-control.form-control;
+  min-width: 0;
+}
