@@ -73,6 +73,8 @@ export function BuilderPage({
   const [scope, setScope] = useState<DetectScope>("images");
   // Which kind of preview the results below belong to.
   const [detected, setDetected] = useState<"images" | "text" | null>(null);
+  // The URL the current results were fetched from, used as the thumbnail Referer.
+  const [previewedUrl, setPreviewedUrl] = useState("");
 
   const [draft, setDraft] = useState<RuleDraft>(EMPTY_DRAFT);
   // Keep/drop picks for the fetched candidates. A test-page affordance only:
@@ -105,8 +107,10 @@ export function BuilderPage({
         {
           // Start from what the current rule keeps, so re-testing a saved
           // rule on another page shows the rule's verdict, not "keep all".
-          onSuccess: (data) =>
-            setKept((data.images ?? []).map((c) => keepsCandidate(c, rules))),
+          onSuccess: (data) => {
+            setPreviewedUrl(target);
+            setKept((data.images ?? []).map((c) => keepsCandidate(c, rules)));
+          },
         },
       );
     } else if (scope === "text") {
@@ -240,6 +244,7 @@ export function BuilderPage({
           kept={kept}
           rules={rules}
           onToggle={toggleCandidate}
+          pageUrl={previewedUrl}
           apiBase={apiBase}
         />
       </div>

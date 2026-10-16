@@ -55,6 +55,24 @@ describe("ImageCandidateGrid", () => {
     );
   });
 
+  it("passes the previewed page URL to the proxy as the Referer", () => {
+    const page = "https://batcave.biz/event/world-war-hulk/1";
+    render(
+      <ImageCandidateGrid
+        candidates={[HERO_1]}
+        kept={[true]}
+        rules={{}}
+        apiBase={BASE}
+        pageUrl={page}
+        onToggle={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Candidate image 1" })).toHaveAttribute(
+      "src",
+      thumbSrc(BASE, HERO_1.url, page),
+    );
+  });
+
   it("reports the toggled candidate", async () => {
     const onToggle = vi.fn();
     render(

@@ -131,6 +131,41 @@ test("thumb streams an image through the server and sets Referer to the origin",
   await app.close();
 });
 
+test("thumb uses the provided page URL as Referer (defeats hotlink protection)", async () => {
+  let seen;
+  const fetch = async (url, init) => {
+    seen = { url, init };
+    return imageResponse([new Uint8Array([9])]);
+  };
+  const app = buildApp({ fetch });
+  const target = "https://img.batcave.biz/img/1-abc.jpg";
+  const page = "https://batcave.biz/event/world-war-hulk/1";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/thumb?url=${encodeURIComponent(target)}&referer=${encodeURIComponent(page)}`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(seen.init.headers.Referer ?? seen.init.headers.referer, page);
+  await app.close();
+});
+
+test("thumb ignores a non-http(s) referer and falls back to the image origin", async () => {
+  let seen;
+  const fetch = async (url, init) => {
+    seen = { url, init };
+    return imageResponse([new Uint8Array([1])]);
+  };
+  const app = buildApp({ fetch });
+  const target = "https://cdn.example.com/a.png";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/thumb?url=${encodeURIComponent(target)}&referer=${encodeURIComponent("javascript:alert(1)")}`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(seen.init.headers.Referer ?? seen.init.headers.referer, "https://cdn.example.com/");
+  await app.close();
+});
+
 test("thumb rejects a non-image content-type with 415 and cancels the upstream body", async () => {
   const upstream = imageResponse([new Uint8Array([1])], { type: "text/html" });
   const app = buildApp({ fetch: async () => upstream });

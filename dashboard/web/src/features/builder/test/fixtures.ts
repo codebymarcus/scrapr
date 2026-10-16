@@ -24,6 +24,7 @@ export const ICON: ImageCandidate = {
 /** Two real pages plus an ad and an icon: the classic "drop the junk" page. */
 export const CANDIDATES: ImageCandidate[] = [HERO_1, HERO_2, AD, ICON];
 
-export function thumbSrc(base: string, url: string): string {
-  return `${base}/api/thumb?url=${encodeURIComponent(url)}`;
+export function thumbSrc(base: string, url: string, pageUrl?: string): string {
+  const referer = pageUrl ? `&referer=${encodeURIComponent(pageUrl)}` : "";
+  return `${base}/api/thumb?url=${encodeURIComponent(url)}${referer}`;
 }

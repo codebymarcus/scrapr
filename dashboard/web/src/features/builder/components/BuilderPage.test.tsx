@@ -85,10 +85,11 @@ describe("BuilderPage", () => {
     await pasteUrlAndFetch();
 
     const first = await screen.findByRole("img", { name: "Candidate image 1" });
-    expect(first).toHaveAttribute("src", thumbSrc(BASE, CANDIDATES[0].url));
+    // Thumbnails carry the previewed page URL as the Referer (hotlink defeat).
+    expect(first).toHaveAttribute("src", thumbSrc(BASE, CANDIDATES[0].url, PAGE_URL));
     expect(screen.getByRole("img", { name: "Candidate image 4" })).toHaveAttribute(
       "src",
-      thumbSrc(BASE, CANDIDATES[3].url),
+      thumbSrc(BASE, CANDIDATES[3].url, PAGE_URL),
     );
     const preview = calls.find((c) => c.path === "/api/preview/image");
     expect(preview?.body).toMatchObject({

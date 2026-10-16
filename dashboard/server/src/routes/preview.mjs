@@ -81,6 +81,12 @@ export async function previewRoutes(app, opts = {}) {
     const target = parseHttpUrl(req.query?.url);
     if (!target) return reply.code(400).send({ error: "url must be an absolute http(s) URL" });
 
+    // Hotlink protection usually checks the Referer against the PAGE the image
+    // is embedded in, not the image's own host. Use the previewed page URL when
+    // the client supplies it; otherwise fall back to the image's origin.
+    const refererParam = parseHttpUrl(req.query?.referer);
+    const referer = refererParam ? refererParam.href : `${target.origin}/`;
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const done = () => clearTimeout(timer);
@@ -88,8 +94,7 @@ export async function previewRoutes(app, opts = {}) {
     let upstream;
     try {
       upstream = await doFetch(target.href, {
-        // Referer = the image's own origin defeats simple hotlink protection.
-        headers: { Referer: `${target.origin}/`, Accept: "image/*,*/*;q=0.5" },
+        headers: { Referer: referer, Accept: "image/*,*/*;q=0.5" },
         signal: controller.signal,
         redirect: "follow",
       });
