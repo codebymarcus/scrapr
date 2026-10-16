@@ -117,7 +117,9 @@ export function BuilderPage({
       return;
     }
     setUrlError(null);
-    resetBuiltInAttempt();
+    // Keep the created project/run refs: a same-URL re-fetch must not
+    // re-create them. Only editing the URL (onChange) invalidates them.
+    setBuiltInError(null);
     const previewName = name.trim() || PREVIEW_NAME;
 
     if (scope === "images") {

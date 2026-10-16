@@ -409,6 +409,32 @@ describe("BuilderPage", () => {
       expect(runs[1].body).toEqual({ projectId: 7 });
     });
 
+    it("keeps the created project across a same-URL re-fetch", async () => {
+      let runAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        run: () => {
+          runAttempts += 1;
+          return runAttempts === 1
+            ? json({ error: "run queue unavailable" }, 500)
+            : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+        },
+      });
+      await pasteUrlAndFetch();
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      await screen.findByRole("alert");
+
+      // Re-run the preview on the same URL without editing it.
+      await userEvent.click(screen.getByRole("button", { name: "Fetch & detect" }));
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      const runs = calls.filter((c) => c.path === "/api/runs");
+      expect(runs).toHaveLength(2);
+      expect(runs[1].body).toEqual({ projectId: 7 });
+    });
+
     it("keeps the run and reuses it when enqueueing the URL fails", async () => {
       let itemAttempts = 0;
       const { calls } = setup({
