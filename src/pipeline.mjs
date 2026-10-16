@@ -207,6 +207,9 @@ export class BatchRunner {
     this._resolveProfile = deps.resolveProfile || resolveProfile;
     this._resolvePipeline = deps.resolvePipeline || resolvePipeline;
     this._validate = deps.validate || validate;
+    // Injectable job source (so a store-backed source can drive a run) and a per-item hook.
+    this._createJobSource = deps.createJobSource || createJobSource;
+    this._onItem = deps.onItem || null;
   }
 
   // Ask the loop to stop after the current job finishes. Idempotent.
@@ -226,7 +229,7 @@ export class BatchRunner {
         `loose=${c.keepLoose} cbz=${c.cbz} pdf=${c.pdf} drive=${c.drive} cache=${c.cache} ` +
         `minBytes=${c.minBytes} settle=${c.settle} jitter=${c.jitter} advanceKey=${c.advanceKey}`
     );
-    const source = createJobSource(this.config, this.logger);
+    const source = this._createJobSource(this.config, this.logger);
     const jobs = await source.load();
     if (this.config.listFile) {
       if (!jobs.length) {
@@ -369,6 +372,8 @@ export class BatchRunner {
         source.setStatus(job, complete ? "done" : "retry");
         source.setReason?.(job, complete ? "" : (code || "FAILED"));
       }
+
+      this._onItem?.(rec);
     }
     return results;
   }
