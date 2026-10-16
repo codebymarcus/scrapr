@@ -134,3 +134,23 @@ test("wasServedFromCache: tracks cache-route hits for the bandwidth meter", () =
   cap._markServed("https://x/a.jpg");
   assert.equal(cap.wasServedFromCache("https://x/a.jpg"), true);
 });
+
+test("ImageCapture: excludeUrl rule drops a matching image only when imageRules is set", async () => {
+  const withRules = new ImageCapture({ ...baseConfig, imageRules: { excludeUrl: "/ad/" } }, noopLogger);
+  await withRules._onResponse(fakeImageResponse("https://cdn.x/ad/banner.jpg"));
+  await withRules._onResponse(fakeImageResponse("https://cdn.x/page/1.jpg"));
+  assert.deepEqual(withRules.list().map((e) => e.url), ["https://cdn.x/page/1.jpg"]);
+
+  // Behaviour-preserving: the same image is captured when no rules are configured.
+  const without = new ImageCapture(baseConfig, noopLogger);
+  await without._onResponse(fakeImageResponse("https://cdn.x/ad/banner.jpg"));
+  assert.equal(without.size, 1);
+});
+
+test("ImageCapture: imageRules includeUrl and minBytes gate capture", async () => {
+  const cap = new ImageCapture({ ...baseConfig, imageRules: { includeUrl: "/page/", minBytes: 60000 } }, noopLogger);
+  await cap._onResponse(fakeImageResponse("https://cdn.x/other/1.jpg", { bytes: 90000 })); // fails includeUrl
+  await cap._onResponse(fakeImageResponse("https://cdn.x/page/small.jpg", { bytes: 30000 })); // fails minBytes
+  await cap._onResponse(fakeImageResponse("https://cdn.x/page/big.jpg", { bytes: 90000 }));
+  assert.deepEqual(cap.list().map((e) => e.url), ["https://cdn.x/page/big.jpg"]);
+});

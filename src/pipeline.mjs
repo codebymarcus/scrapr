@@ -15,6 +15,7 @@ import { DriveUploader } from "./drive.mjs";
 import { resolveTargets, resolveRecordBase } from "./naming.mjs";
 import { PageCache } from "./cache.mjs";
 import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
+import sharp from "sharp";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
@@ -22,6 +23,7 @@ import { scrapeText, resolveMode } from "./text/scrape-text.mjs";
 import { RecordWriter } from "./text/records.mjs";
 import { resolveProfile, resolvePipeline } from "./profiles/registry.mjs";
 import { validate } from "./result-validator.mjs";
+import { filterImages } from "./recipes/image-filter.mjs";
 import { CircuitBreaker, hostOf, failureCodeOf } from "./breaker.mjs";
 export { decideOutcome } from "./outcome.mjs";
 
@@ -86,6 +88,32 @@ async function removeJobArtifacts(targets, logger) {
   logger.muted(`cleaned up local files (${targets.outDir})`);
 }
 
+// Default dimension reader: pixel size from the image header via sharp.
+async function sharpDimsOf(buffer) {
+  const { width, height } = await sharp(buffer).metadata();
+  return { width, height };
+}
+
+// Post-capture pass for the dimension-based image rules (minWidth/minHeight),
+// which need decoded pixels and so can't run in ImageCapture. Returns `images`
+// itself when there is nothing to check. An image whose size can't be read has
+// unknown dimensions and fails a dimension rule (matching filterImages).
+export async function applyImageDimensionRules(images, rules, { dimsOf = sharpDimsOf } = {}) {
+  if (!rules) return images;
+  const { minWidth, minHeight } = rules;
+  const dimRules = {};
+  if (minWidth !== undefined) dimRules.minWidth = minWidth;
+  if (minHeight !== undefined) dimRules.minHeight = minHeight;
+  if (Object.keys(dimRules).length === 0) return images;
+  const candidates = [];
+  for (const img of images) {
+    let dims = {};
+    try { dims = (await dimsOf(img.buffer)) || {}; } catch { /* unreadable → unknown size */ }
+    candidates.push({ img, url: img.url, width: dims.width, height: dims.height });
+  }
+  return filterImages(candidates, dimRules).map((c) => c.img);
+}
+
 // Scrape one URL through the full sequence:
 //   acquire (via the strategy orchestrator) → convert/package → upload →
 //   clean up local files + cache.
@@ -128,7 +156,9 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     // Convert & package.
     if (r.acceptedPartial) logger.warn(`accepting partial download: packaging ${r.downloaded}/${r.total || "?"} page(s) (--accept-partial)`);
     logger.step("→ converting & packaging");
-    const outputs = await processor.process(capture.list());
+    let captured = capture.list();
+    if (config.imageRules) captured = await applyImageDimensionRules(captured, config.imageRules);
+    const outputs = await processor.process(captured);
     for (const packager of packagers) await packager.write(outputs, finalTargets, metadata);
 
     // Upload to Drive; a failed upload → retry, keep local files (unchanged).
