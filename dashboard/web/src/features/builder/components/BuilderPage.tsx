@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/molecules/ErrorState";
 import { Field } from "@/components/molecules/Field";
 import { PageLayout } from "@/components/templates/PageLayout";
 import { useCreateProject } from "@/features/projects";
-import { useCreateRun } from "@/features/runs";
+import { useCreateRun, useEnqueue } from "@/features/runs";
 import { API_BASE } from "@/lib/api-base";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
@@ -73,6 +73,11 @@ export function BuilderPage({
   const navigate = useNavigate();
   const createProject = useCreateProject(client);
   const createRun = useCreateRun(client);
+  const enqueue = useEnqueue(client);
+  // Progress of the current built-in attempt, kept so a retry after a partial
+  // failure reuses what exists instead of re-creating (and 409-ing on) it.
+  const createdProjectIdRef = useRef<number | null>(null);
+  const createdRunIdRef = useRef<number | null>(null);
   const [creatingBuiltIn, setCreatingBuiltIn] = useState(false);
   const [builtInError, setBuiltInError] = useState<string | null>(null);
 
@@ -84,6 +89,12 @@ export function BuilderPage({
   const [detected, setDetected] = useState<"images" | "text" | null>(null);
   // The URL the current results were fetched from, used as the thumbnail Referer.
   const [previewedUrl, setPreviewedUrl] = useState("");
+
+  function resetBuiltInAttempt() {
+    createdProjectIdRef.current = null;
+    createdRunIdRef.current = null;
+    setBuiltInError(null);
+  }
 
   const [draft, setDraft] = useState<RuleDraft>(EMPTY_DRAFT);
   // Keep/drop picks for the fetched candidates. A test-page affordance only:
@@ -106,7 +117,7 @@ export function BuilderPage({
       return;
     }
     setUrlError(null);
-    setBuiltInError(null);
+    resetBuiltInAttempt();
     const previewName = name.trim() || PREVIEW_NAME;
 
     if (scope === "images") {
@@ -128,7 +139,12 @@ export function BuilderPage({
       previewImage.reset();
       previewText.mutate(
         { url: target, recipe: buildTextRecipe(previewName, []) },
-        { onSuccess: () => setExcludedText(new Set()) },
+        {
+          onSuccess: () => {
+            setPreviewedUrl(target);
+            setExcludedText(new Set());
+          },
+        },
       );
     }
   }
@@ -192,16 +208,32 @@ export function BuilderPage({
     setCreatingBuiltIn(true);
     setBuiltInError(null);
     try {
-      const project = await createProject.mutateAsync({
-        name: trimmedName || `${profileName} (built-in)`,
-        recipe: {
-          name: profileName,
-          contentType: "image",
-          builtIn: true,
-          builtInProfile: profileName,
-        },
+      if (createdProjectIdRef.current === null) {
+        const project = await createProject.mutateAsync({
+          name: trimmedName || `${profileName} (built-in)`,
+          recipe: {
+            name: profileName,
+            contentType: "image",
+            builtIn: true,
+            builtInProfile: profileName,
+          },
+        });
+        createdProjectIdRef.current = project.id;
+      }
+      if (createdRunIdRef.current === null) {
+        const run = await createRun.mutateAsync({
+          projectId: createdProjectIdRef.current,
+        });
+        createdRunIdRef.current = run.id;
+      }
+      const queued = await enqueue.mutateAsync({
+        runId: createdRunIdRef.current,
+        urls: [previewedUrl],
       });
-      await createRun.mutateAsync({ projectId: project.id });
+      if (!queued.ok) {
+        throw new Error(queued.error);
+      }
+      resetBuiltInAttempt();
       navigate("/");
     } catch (error) {
       setBuiltInError(
@@ -311,7 +343,10 @@ export function BuilderPage({
                 <TextInput
                   id={`${ids}-url`}
                   value={url}
-                  onChange={setUrl}
+                  onChange={(value) => {
+                    setUrl(value);
+                    resetBuiltInAttempt();
+                  }}
                   placeholder="https://example.com/chapter-1"
                 />
               </Field>

@@ -32,6 +32,7 @@ function setup(
     text?: () => Response;
     create?: () => Response;
     run?: () => Response;
+    items?: () => Response;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -55,6 +56,9 @@ function setup(
       return options.run
         ? options.run()
         : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+    }
+    if (/^\/api\/runs\/\d+\/items$/.test(path) && method === "POST") {
+      return options.items ? options.items() : json({ added: 1 });
     }
     return json({ error: "not found" }, 404);
   };
@@ -322,7 +326,11 @@ describe("BuilderPage", () => {
 
       expect(await screen.findByText("Runs page")).toBeInTheDocument();
       const writes = calls.filter((c) => c.method === "POST" && c.path !== "/api/preview/image");
-      expect(writes.map((c) => c.path)).toEqual(["/api/projects", "/api/runs"]);
+      expect(writes.map((c) => c.path)).toEqual([
+        "/api/projects",
+        "/api/runs",
+        "/api/runs/11/items",
+      ]);
       expect(writes[0].body).toEqual({
         name: "batcave (built-in)",
         recipe: {
@@ -333,6 +341,8 @@ describe("BuilderPage", () => {
         },
       });
       expect(writes[1].body).toEqual({ projectId: 7 });
+      // The previewed URL becomes the run's work, so "run it directly" is literal.
+      expect(writes[2].body).toEqual({ urls: [PAGE_URL] });
     });
 
     it("uses the typed project name when there is one", async () => {
@@ -364,6 +374,66 @@ describe("BuilderPage", () => {
       expect(alert).toHaveTextContent("Project name already exists");
       expect(screen.queryByText("Runs page")).toBeNull();
       expect(calls.some((c) => c.path === "/api/runs")).toBe(false);
+    });
+  });
+
+  describe("built-in recipe retries", () => {
+    const CREATE = "Create a run with the built-in recipe";
+    const batcave = () => json({ ...okImages, builtInRecipe: "batcave" });
+
+    it("reuses the created project when the run POST fails, then succeeds", async () => {
+      let runAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        run: () => {
+          runAttempts += 1;
+          return runAttempts === 1
+            ? json({ error: "run queue unavailable" }, 500)
+            : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+        },
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "run queue unavailable",
+      );
+      expect(screen.queryByText("Runs page")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      const runs = calls.filter((c) => c.path === "/api/runs");
+      expect(runs).toHaveLength(2);
+      expect(runs[1].body).toEqual({ projectId: 7 });
+    });
+
+    it("keeps the run and reuses it when enqueueing the URL fails", async () => {
+      let itemAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        items: () => {
+          itemAttempts += 1;
+          return itemAttempts === 1
+            ? json({ error: "could not enqueue" }, 500)
+            : json({ added: 1 });
+        },
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("could not enqueue");
+      expect(screen.queryByText("Runs page")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      expect(calls.filter((c) => c.path === "/api/runs")).toHaveLength(1);
+      const items = calls.filter((c) => c.path === "/api/runs/11/items");
+      expect(items).toHaveLength(2);
+      expect(items[1].body).toEqual({ urls: [PAGE_URL] });
     });
   });
 
