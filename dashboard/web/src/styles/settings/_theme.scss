@@ -1,0 +1,58 @@
+// Vintage palette. Dark is the default; light is a fallback (also applied when
+// no data-theme attribute is present). Never hardcode colors outside this file.
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-base: #F3ECDC;
+  --color-background: #FAF5E9;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F1E9D6;
+  --color-border: #E0D6BD;
+  --color-border-strong: #CFC3A4;
+  --color-text: #1F2A36;
+  --color-text-secondary: #6A6450;
+
+  --color-accent: #D9550A;
+  --color-accent-hover: #C04A07;
+  --color-accent-burnt: #A84006;
+  --color-focus: #D9550A;
+
+  --color-positive: #4D7A35;
+  --color-warn: #A97A1A;
+  --color-negative: #B3402F;
+
+  --color-on-accent: #FFFFFF;
+  --color-grain: #000000;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 6%);
+  --shadow-card-hover: 0 4px 12px rgb(0 0 0 / 10%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-base: #060F1A;
+  --color-background: #0B192C;
+  --color-surface: #102A45;
+  --color-surface-hover: #1E3E62;
+  --color-border: #23405F;
+  --color-border-strong: #1E3E62;
+  --color-text: #EFE3CC;
+  --color-text-secondary: #A99F86;
+
+  --color-accent: #FF6500;
+  --color-accent-hover: #FF7D2B;
+  --color-accent-burnt: #D9550A;
+  --color-focus: #FF6500;
+
+  --color-positive: #7FAE63;
+  --color-warn: #D9A441;
+  --color-negative: #CF5B4C;
+
+  --color-on-accent: #060F1A;
+  --color-grain: #EFE3CC;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-card-hover: 0 4px 12px rgb(0 0 0 / 40%);
+}

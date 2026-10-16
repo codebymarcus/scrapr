@@ -1,0 +1,22 @@
+@use "styles/tools/focus" as focus;
+
+// Shared secondary-button surface. Callers add their own padding / layout /
+// transition; this covers border, fill, text, hover, disabled and focus.
+@mixin button-secondary {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+
+  @include focus.focus-ring;
+}

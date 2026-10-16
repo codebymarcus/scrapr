@@ -1,0 +1,28 @@
+/* Type scale. Sizes in rem (accessible, scales with root font). */
+:root {
+  /* families */
+  --font-display: Bitter, Georgia, serif; /* display + headings */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace; /* data */
+  --font-body: Inter, system-ui, sans-serif; /* body copy */
+
+  /* size scale */
+  --font-size-2xs: 0.75rem; /* 12px */
+  --font-size-xs: 0.8125rem; /* 13px */
+  --font-size-sm: 0.875rem; /* 14px */
+  --font-size-base: 1rem; /* 16px */
+  --font-size-lg: 1.125rem; /* 18px */
+  --font-size-xl: 1.5rem; /* 24px */
+  --font-size-display: clamp(1.5rem, 3vw, 2rem); /* responsive page title */
+  --font-size-display-lg: clamp(1.75rem, 5vw, 2.5rem); /* hero numbers */
+
+  /* weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* line-heights */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.6;
+}

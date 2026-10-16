@@ -1,0 +1,25 @@
+@use "sass:list";
+@use "styles/tools/a11y" as a11y;
+
+// Animate the given properties with the standard fast/default motion tokens,
+// and automatically opt out under prefers-reduced-motion (styles rule 4), so a
+// transition and its reduced-motion escape hatch stay in one place.
+//
+//   @include transition.transition(background-color, border-color);
+@mixin transition($properties...) {
+  $parts: ();
+
+  @each $property in $properties {
+    $parts: list.append(
+      $parts,
+      $property var(--duration-fast) var(--ease-default),
+      $separator: comma
+    );
+  }
+
+  transition: $parts;
+
+  @include a11y.reduced-motion {
+    transition: none;
+  }
+}

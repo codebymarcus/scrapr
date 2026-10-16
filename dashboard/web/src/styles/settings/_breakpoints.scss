@@ -1,0 +1,6 @@
+// Compile-time breakpoints (custom props can't be used inside @media).
+$bp-grid-sm: 600px;   // card grid 1 -> 2 cols
+$bp-grid-md: 900px;   // card grid 2 -> 3 cols
+$bp-grid-lg: 1200px;  // card grid 3 -> 4 cols
+$bp-toolbar: 480px;   // header collapse
+$bp-controls: 640px;  // controls stack

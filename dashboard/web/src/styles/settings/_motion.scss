@@ -1,0 +1,8 @@
+:root {
+  --duration-fast: 150ms;    /* hover / focus transitions */
+  --duration-theme: 180ms;   /* theme bg + color transition */
+  --duration-shimmer: 1.5s;  /* skeleton shimmer */
+  --duration-grain: 8s;      /* film-grain drift */
+  --ease-default: ease;
+  --ease-linear: linear;
+}

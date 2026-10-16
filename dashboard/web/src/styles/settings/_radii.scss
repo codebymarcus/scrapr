@@ -1,0 +1,7 @@
+/* Vintage look: tighter corners than a modern UI. */
+:root {
+  --radius-xs: 2px;  /* tags, skeleton bars */
+  --radius-sm: 4px;  /* buttons, inputs, selects */
+  --radius-md: 6px;  /* panels, empty states */
+  --radius-lg: 8px;  /* cards */
+}
