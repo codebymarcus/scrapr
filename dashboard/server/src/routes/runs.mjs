@@ -15,6 +15,8 @@ const SHEET_EXT = /\.(csv|tsv|txt|xlsx|xls)$/i;
 
 // Runs accept new items only while not executing (spec 8.1: no live-append).
 const ENQUEUEABLE = new Set(["queued", "stopped"]);
+// A run can be started only from these states (same set as enqueueing).
+const STARTABLE = ENQUEUEABLE;
 
 // Parse a route :id param as a positive integer; returns null when invalid.
 function parseId(raw) {
@@ -58,7 +60,7 @@ async function listImageOutputs(outDir) {
   return outputs.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function runRoutes(app, { store, runOutDir = defaultRunOutDir }) {
+export async function runRoutes(app, { store, runManager, runOutDir = defaultRunOutDir }) {
   function withId(handler) {
     return async (request, reply) => {
       const id = parseId(request.params.id);
@@ -165,4 +167,39 @@ export async function runRoutes(app, { store, runOutDir = defaultRunOutDir }) {
       return { contentType, outputs: await listImageOutputs(outDir) };
     }),
   );
+
+  // Start/stop are only exposed when a run manager is wired in.
+  if (runManager) {
+    // Responds as soon as the run has been handed to the manager; the run itself
+    // executes in the background (progress arrives over the WebSocket). If another
+    // run is active the run stays queued and starts when the slot frees up.
+    app.post(
+      "/api/runs/:id/start",
+      withId(async (id, request, reply) => {
+        const run = store.getRun(id);
+        if (!run) return reply.code(404).send({ error: "Run not found" });
+        if (!STARTABLE.has(run.state)) {
+          return reply.code(409).send({
+            error: `Cannot start a ${run.state} run (only queued or stopped runs can be started)`,
+          });
+        }
+        const outcome = runManager.start(id);
+        // Never await the run itself; just make sure a rejection cannot go unhandled.
+        Promise.resolve(outcome).catch(() => {});
+        return { run: store.getRun(id) };
+      }),
+    );
+
+    app.post(
+      "/api/runs/:id/stop",
+      withId(async (id, request, reply) => {
+        const run = store.getRun(id);
+        if (!run) return reply.code(404).send({ error: "Run not found" });
+        if (!runManager.stop(id)) {
+          return reply.code(409).send({ error: "Run is not running, nothing to stop" });
+        }
+        return { stopped: true };
+      }),
+    );
+  }
 }

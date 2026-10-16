@@ -199,3 +199,107 @@ test("a run that cannot be set up (missing project) is failed, not left running"
   assert.equal(mgr.activeRunId(), null);
   db.close();
 });
+
+test("start ignores runs that are not queued/stopped (no runner is created)", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  for (const state of ["running", "done", "failed"]) {
+    const run = makeRun(["https://e.com/1"]);
+    store.setRunState(run.id, state);
+    assert.equal(await mgr.start(run.id), "not-startable");
+    assert.equal(store.getRun(run.id).state, state);
+  }
+  assert.equal(await mgr.start(9999), "not-startable");
+  assert.equal(factory.created.length, 0);
+  assert.equal(mgr.activeRunId(), null);
+  db.close();
+});
+
+test("a stopped run can be started again", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const run = makeRun(["https://e.com/1"]);
+  store.setRunState(run.id, "stopped");
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  assert.equal(await mgr.start(run.id), "done");
+  assert.equal(factory.created.length, 1);
+  db.close();
+});
+
+test("a stopped run started while another is active is re-queued and drained", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const r1 = makeRun(["https://e.com/1"]);
+  const r2 = makeRun(["https://e.com/2"]);
+  store.setRunState(r2.id, "stopped");
+  const gate = deferred();
+  const factory = fakeFactory(async () => {
+    if (factory.created.length === 1) await gate.promise;
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const p1 = mgr.start(r1.id);
+  assert.equal(await mgr.start(r2.id), "queued");
+  assert.equal(store.getRun(r2.id).state, "queued");
+  gate.resolve();
+  await p1;
+  await mgr.idle();
+  assert.equal(store.getRun(r2.id).state, "done");
+  db.close();
+});
+
+test("a throwing emit (including the running-state emit) does not fail the run", async () => {
+  const { db, store, makeRun } = setup();
+  const run = makeRun(["https://e.com/1"]);
+  const factory = fakeFactory(async () => 0);
+  const emit = () => { throw new Error("broadcast down"); };
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  assert.equal(await mgr.start(run.id), "done");
+  assert.equal(factory.created.length, 1);
+  assert.equal(store.getRun(run.id).state, "done");
+  db.close();
+});
+
+test("a throwing runner.stop() is swallowed", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const run = makeRun(["https://e.com/1"]);
+  const gate = deferred();
+  const factory = (config, logger, deps) => {
+    const runner = {
+      stop() { throw new Error("stop failed"); },
+      run: async () => { await gate.promise; return 0; },
+    };
+    factory.created.push(runner);
+    return runner;
+  };
+  factory.created = [];
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const p = mgr.start(run.id);
+  assert.doesNotThrow(() => mgr.stop(run.id));
+  gate.resolve();
+  assert.equal(await p, "stopped");
+  assert.equal(store.getRun(run.id).state, "stopped");
+
+  db.close();
+});
+
+test("an orphan queued row (state cannot be persisted) is not re-picked forever", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const run = makeRun(["https://e.com/1"]);
+  const realSet = store.setRunState;
+  store.setRunState = (id, state, times) => {
+    if (state !== "queued") throw new Error("db locked");
+    return realSet(id, state, times);
+  };
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  assert.equal(await mgr.start(run.id), "failed");
+  await mgr.idle(); // would never settle if the drain looped on the orphan
+  assert.equal(store.getRun(run.id).state, "queued");
+  assert.equal(factory.created.length, 0);
+  assert.equal(mgr.activeRunId(), null);
+  // An explicit start is still allowed to retry it.
+  store.setRunState = realSet;
+  assert.equal(await mgr.start(run.id), "done");
+  db.close();
+});

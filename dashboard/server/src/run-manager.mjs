@@ -10,8 +10,10 @@ export const defaultRunnerFactory = (config, logger, deps) => new BatchRunner(co
 // Runs one scrape at a time. Extra start() calls leave their run queued; when the
 // active run reaches a terminal state the next queued run is started.
 //
-// start(runId) resolves to "queued" if another run is active, otherwise to the run's
-// final state ("done" | "failed" | "stopped").
+// start(runId) resolves to:
+//   "not-startable" - the run does not exist or is not `queued`/`stopped` (nothing executed)
+//   "queued"        - another run is active; this run waits its turn
+//   otherwise       - the run's final state ("done" | "failed" | "stopped")
 export function createRunManager({
   store,
   emit,
@@ -21,6 +23,25 @@ export function createRunManager({
 }) {
   let active = null; // { runId, runner, stopRequested }
   let current = null; // promise of the active run's execution (plus queue drain)
+  // Runs that failed to leave `queued` (finish() could not persist a terminal
+  // state). The auto-drain skips them so a broken row cannot be re-picked forever.
+  const orphans = new Set();
+
+  function safeEmit(runId, event) {
+    try {
+      emit(runId, event);
+    } catch {
+      // emit is best-effort: a throwing broadcast must never fail a run.
+    }
+  }
+
+  function safeStop(runner) {
+    try {
+      runner?.stop();
+    } catch {
+      // A throwing stop() must not propagate.
+    }
+  }
 
   function finish(runId, state) {
     try {
@@ -29,10 +50,12 @@ export function createRunManager({
       // A store failure here must not wedge the queue.
     }
     try {
-      emit(runId, { type: "state", state });
+      if (store.getRun(runId)?.state === "queued") orphans.add(runId);
+      else orphans.delete(runId);
     } catch {
-      // emit is best-effort.
+      orphans.add(runId);
     }
+    safeEmit(runId, { type: "state", state });
   }
 
   async function execute(entry) {
@@ -45,17 +68,17 @@ export function createRunManager({
       const recipe = project.recipe;
 
       store.setRunState(runId, "running", { startedAt: now() });
-      emit(runId, { type: "state", state: "running" });
+      safeEmit(runId, { type: "state", state: "running" });
 
       const config = buildRunConfig(recipe, { runOutDir: runOutDir(run) });
-      const logger = createEventLogger((ev) => emit(runId, ev));
+      const logger = createEventLogger((ev) => safeEmit(runId, ev));
 
       // Must never throw: a throwing onItem would abort the whole batch.
       const onItem = (rec) => {
         try {
           const review = needsReview(rec, recipe);
           store.setItemResult(rec.id, { saved: rec.saved, total: rec.total, needsReview: review });
-          emit(runId, {
+          safeEmit(runId, {
             type: "item",
             id: rec.id,
             url: rec.url,
@@ -81,7 +104,7 @@ export function createRunManager({
 
       entry.runner = runnerFactory(config, logger, deps);
       // stop() may have been requested between state change and runner creation.
-      if (entry.stopRequested) entry.runner.stop();
+      if (entry.stopRequested) safeStop(entry.runner);
       const code = await entry.runner.run();
       state = entry.stopRequested ? "stopped" : code === 0 || code === undefined ? "done" : "failed";
     } catch {
@@ -100,20 +123,41 @@ export function createRunManager({
     } catch {
       return null;
     }
-    return next ? start(next.id) : null;
+    if (!next || orphans.has(next.id)) return null;
+    return start(next.id);
   }
 
   function start(runId) {
-    if (active) return Promise.resolve("queued");
+    let run = null;
+    try {
+      run = store.getRun(runId);
+    } catch {
+      return Promise.resolve("not-startable");
+    }
+    if (!run || (run.state !== "queued" && run.state !== "stopped")) {
+      return Promise.resolve("not-startable");
+    }
+    if (active) {
+      // A stopped run asked to start while another is active goes back in the
+      // queue so the drain picks it up.
+      if (run.state === "stopped") {
+        try {
+          store.setRunState(runId, "queued");
+        } catch {
+          // stays stopped; the caller can retry
+        }
+      }
+      return Promise.resolve("queued");
+    }
     // Claim the slot synchronously so a racing start() sees it as active.
     const entry = { runId, runner: null, stopRequested: false };
     active = entry;
-    const run = execute(entry).then((state) => {
+    const promise = execute(entry).then((state) => {
       startNextQueued(); // fire-and-forget; start() never rejects
       return state;
     });
-    current = run;
-    return run;
+    current = promise;
+    return promise;
   }
 
   return {
@@ -121,7 +165,7 @@ export function createRunManager({
     stop(runId) {
       if (active && active.runId === runId) {
         active.stopRequested = true;
-        active.runner?.stop();
+        safeStop(active.runner);
         return true;
       }
       return false;

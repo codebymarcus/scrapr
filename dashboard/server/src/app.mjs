@@ -30,7 +30,11 @@ export function buildApp(deps = {}) {
   });
   if (deps.store) {
     app.register(projectRoutes, { store: deps.store });
-    app.register(runRoutes, { store: deps.store, runOutDir: deps.runOutDir });
+    app.register(runRoutes, {
+      store: deps.store,
+      runManager: deps.runManager,
+      runOutDir: deps.runOutDir,
+    });
   }
   return app;
 }

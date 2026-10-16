@@ -115,3 +115,12 @@ test("buildApp uses an injected hub", async () => {
   assert.equal(app.hub, hub);
   await app.close();
 });
+
+test("numeric and string run ids address the same channel", () => {
+  const hub = createHub();
+  const got = [];
+  hub.subscribe("7", (ev) => got.push(ev));
+  assert.equal(hub.subscriberCount(7), 1);
+  hub.emit(7, { n: 1 });
+  assert.deepEqual(got, [{ n: 1 }]);
+});
