@@ -24,6 +24,9 @@
   }
 }
 
+.queued {
+  color: var(--color-text-secondary);
+}
 .running {
   color: var(--color-accent);
 }

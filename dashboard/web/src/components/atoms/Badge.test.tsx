@@ -4,6 +4,7 @@ import { Badge } from "./Badge";
 
 describe("Badge", () => {
   it.each([
+    ["queued", "Queued"],
     ["running", "Running"],
     ["stopped", "Stopped"],
     ["done", "Done"],

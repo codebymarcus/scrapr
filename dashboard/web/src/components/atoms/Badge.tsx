@@ -1,12 +1,13 @@
 import styles from "./Badge.module.scss";
 
-type BadgeTone = "running" | "stopped" | "done" | "failed" | "review";
+type BadgeTone = "queued" | "running" | "stopped" | "done" | "failed" | "review";
 
 type BadgeProps = {
   tone: BadgeTone;
 };
 
 const LABELS: Record<BadgeTone, string> = {
+  queued: "Queued",
   running: "Running",
   stopped: "Stopped",
   done: "Done",
