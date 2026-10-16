@@ -72,12 +72,12 @@ export const recipeSchema = z.object({
 });
 
 export const createProjectSchema = z.object({
-  name: z.string(),
+  name: z.string().min(1),
   recipe: recipeSchema,
 });
 
 export const updateProjectSchema = z.object({
-  name: z.string().optional(),
+  name: z.string().min(1).optional(),
   recipe: recipeSchema.optional(),
 });
 

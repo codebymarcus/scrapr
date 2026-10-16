@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { projectRoutes } from "./routes/projects.mjs";
 import { systemRoutes } from "./routes/system.mjs";
 
 // deps: { store, runManager, browserFactory, fetch, driveStatus } — all
@@ -8,5 +9,6 @@ export function buildApp(deps = {}) {
   const app = Fastify({ logger: false });
   app.decorate("deps", deps);
   app.register(systemRoutes, { driveStatus: deps.driveStatus });
+  if (deps.store) app.register(projectRoutes, { store: deps.store });
   return app;
 }
