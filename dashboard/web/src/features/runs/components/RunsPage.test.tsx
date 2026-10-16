@@ -1,8 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { RunSocket } from "../hooks/use-run-events";
 import { makeFakeClient, makeItem, makeRun } from "../test/fixtures";
 import { RunsPage } from "./RunsPage";
+
+// Never connects, so no real WebSocket is opened from jsdom.
+const idleSocket = (): RunSocket => ({
+  onopen: null,
+  onmessage: null,
+  onerror: null,
+  onclose: null,
+  close: () => {},
+});
 
 function renderPage(client: ReturnType<typeof makeFakeClient>) {
   const queryClient = new QueryClient({
@@ -10,7 +20,7 @@ function renderPage(client: ReturnType<typeof makeFakeClient>) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RunsPage client={client} />
+      <RunsPage client={client} socketFactory={idleSocket} />
     </QueryClientProvider>,
   );
 }
@@ -93,6 +103,15 @@ describe("RunsPage", () => {
     expect(
       await within(strip).findByText("2", { selector: "dd" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows unavailable stats as a dash instead of zero", async () => {
+    renderPage(makeFakeClient({ "/api/runs": { runs: [done] } }));
+
+    const strip = await screen.findByRole("group", { name: "Run stats" });
+    expect(
+      within(strip).getByText("Failing hosts").nextSibling,
+    ).toHaveTextContent("—");
   });
 
   it("hides empty groups", async () => {

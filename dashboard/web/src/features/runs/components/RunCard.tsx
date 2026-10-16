@@ -1,24 +1,82 @@
-import type { ReactNode } from "react";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/atoms/Badge";
+import { Button } from "@/components/atoms/Button";
+import { PlayIcon } from "@/components/atoms/icons/PlayIcon";
+import { StopIcon } from "@/components/atoms/icons/StopIcon";
 import { SegmentedMeter } from "@/components/atoms/SegmentedMeter";
 import { Text } from "@/components/atoms/Text";
+import { dashboardClient } from "@/lib/api-client";
+import type { ApiClient } from "@/lib/http/api-client";
 import type { Run } from "@/lib/schemas";
+import { runKeys } from "../hooks/runs-keys";
+import { useRun } from "../hooks/use-run";
+import { useRunActions } from "../hooks/use-run-actions";
+import { useRunEvents } from "../hooks/use-run-events";
+import type { SocketFactory } from "../hooks/use-run-events";
 import type { RunContentType, RunProgress } from "../types";
 import { runName } from "../utils";
 import styles from "./RunCard.module.scss";
 
+// Poll the run detail at this cadence while the live socket is down.
+const POLL_INTERVAL_MS = 3000;
+
 type RunCardProps = {
   run: Run;
-  /** Known from the run's project; falls back to the project id. */
+  /** Known from the run's project; the tag is hidden when unknown. */
   contentType?: RunContentType;
   /** Item counts; the list endpoint has none, so this is derived upstream. */
   progress?: RunProgress;
-  /** Action buttons (wired up by the run-controls feature). */
-  actions?: ReactNode;
+  /** Injectable for tests; production uses the shared dashboard client. */
+  client?: ApiClient;
+  /** Injectable for tests; production opens a real WebSocket. */
+  socketFactory?: SocketFactory;
 };
 
-export function RunCard({ run, contentType, progress, actions }: RunCardProps) {
-  const showMeter = progress !== undefined || run.state === "running";
+export function RunCard({
+  run,
+  contentType,
+  progress,
+  client = dashboardClient,
+  socketFactory,
+}: RunCardProps) {
+  const queryClient = useQueryClient();
+  const isRunning = run.state === "running";
+
+  // A running card streams its events into the cache; when the socket is
+  // down it polls the detail instead so the card still moves.
+  const { connected } = useRunEvents(run.id, {
+    enabled: isRunning,
+    socketFactory,
+  });
+  const detail = useRun(isRunning ? run.id : null, client, {
+    refetchInterval: connected ? false : POLL_INTERVAL_MS,
+  });
+  const polledState = detail.data?.run.state;
+  useEffect(() => {
+    // Polling sees a state change the (list) run prop hasn't caught up with.
+    if (isRunning && !connected && polledState && polledState !== run.state) {
+      void queryClient.invalidateQueries({ queryKey: runKeys.lists() });
+    }
+  }, [isRunning, connected, polledState, run.state, queryClient]);
+
+  const { start, stop, resume } = useRunActions(client);
+  const actionMutations = [start, stop, resume];
+  const busy = actionMutations.some((mutation) => mutation.isPending);
+  const failed = actionMutations.find(
+    (mutation) => mutation.data?.ok === false || mutation.error,
+  );
+  const actionError =
+    failed?.data?.ok === false
+      ? failed.data.error
+      : (failed?.error?.message ?? null);
+
+  function fire(mutation: typeof start) {
+    actionMutations.forEach((m) => m.reset());
+    mutation.mutate(run.id);
+  }
+
+  const showMeter = progress !== undefined || isRunning;
   const counts = progress ? `${progress.done} of ${progress.total}` : null;
 
   return (
@@ -27,9 +85,7 @@ export function RunCard({ run, contentType, progress, actions }: RunCardProps) {
         <Text variant="body" as="h3" weight="semibold" className={styles.name}>
           {runName(run)}
         </Text>
-        <span className={styles.tag}>
-          {contentType ?? `project ${run.project_id}`}
-        </span>
+        {contentType ? <span className={styles.tag}>{contentType}</span> : null}
         <Badge tone={run.state} />
       </div>
 
@@ -47,7 +103,40 @@ export function RunCard({ run, contentType, progress, actions }: RunCardProps) {
         </div>
       ) : null}
 
-      <div className={styles.actions}>{actions}</div>
+      <div className={styles.actions}>
+        {run.state === "queued" ? (
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => fire(start)}
+          >
+            <PlayIcon />
+            Start
+          </Button>
+        ) : null}
+        {run.state === "stopped" ? (
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => fire(resume)}
+          >
+            <PlayIcon />
+            Resume
+          </Button>
+        ) : null}
+        {isRunning ? (
+          <Button disabled={busy} onClick={() => fire(stop)}>
+            <StopIcon />
+            Stop
+          </Button>
+        ) : null}
+      </div>
+
+      {actionError ? (
+        <Text variant="small" tone="negative" role="alert">
+          {actionError}
+        </Text>
+      ) : null}
     </article>
   );
 }

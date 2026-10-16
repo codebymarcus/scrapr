@@ -4,6 +4,7 @@ import { ErrorState } from "@/components/molecules/ErrorState";
 import { PageLayout } from "@/components/templates/PageLayout";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
+import type { SocketFactory } from "../hooks/use-run-events";
 import { useRunProgress } from "../hooks/use-run-progress";
 import { useRuns } from "../hooks/use-runs";
 import { groupRuns, isSameLocalDay } from "../utils";
@@ -15,9 +16,14 @@ import styles from "./RunsPage.module.scss";
 type RunsPageProps = {
   /** Injectable for tests; production uses the shared dashboard client. */
   client?: ApiClient;
+  /** Injectable for tests; production opens real WebSockets. */
+  socketFactory?: SocketFactory;
 };
 
-export function RunsPage({ client = dashboardClient }: RunsPageProps) {
+export function RunsPage({
+  client = dashboardClient,
+  socketFactory,
+}: RunsPageProps) {
   const runsQuery = useRuns(client);
   const runs = runsQuery.data ?? [];
   const groups = groupRuns(runs);
@@ -87,7 +93,13 @@ export function RunsPage({ client = dashboardClient }: RunsPageProps) {
 
     const renderCards = (list: typeof runs) =>
       list.map((run) => (
-        <RunCard key={run.id} run={run} progress={progress.get(run.id)} />
+        <RunCard
+          key={run.id}
+          run={run}
+          progress={progress.get(run.id)}
+          client={client}
+          socketFactory={socketFactory}
+        />
       ));
 
     return (
@@ -96,8 +108,8 @@ export function RunsPage({ client = dashboardClient }: RunsPageProps) {
           running={groups.running.length}
           queuedItems={pendingItems}
           doneToday={doneToday}
-          // Per-host failures are not exposed by the API yet.
-          failingHosts={0}
+          // Per-host failures are not exposed by the API yet: show "—".
+          failingHosts={null}
         />
         <RunGroup label="Running">{renderCards(groups.running)}</RunGroup>
         <RunGroup label="Queued">{renderCards(groups.queued)}</RunGroup>

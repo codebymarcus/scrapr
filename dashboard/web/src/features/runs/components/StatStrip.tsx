@@ -4,7 +4,8 @@ type StatStripProps = {
   running: number;
   queuedItems: number;
   doneToday: number;
-  failingHosts: number;
+  /** `null` when the figure is not available from the API. */
+  failingHosts: number | null;
 };
 
 export function StatStrip({
@@ -13,7 +14,7 @@ export function StatStrip({
   doneToday,
   failingHosts,
 }: StatStripProps) {
-  const stats = [
+  const stats: { label: string; value: number | null }[] = [
     { label: "Running", value: running },
     { label: "Queued items", value: queuedItems },
     { label: "Done today", value: doneToday },
@@ -25,7 +26,7 @@ export function StatStrip({
       {stats.map((stat) => (
         <div key={stat.label} className={styles.stat}>
           <dt className={styles.label}>{stat.label}</dt>
-          <dd className={styles.value}>{stat.value}</dd>
+          <dd className={styles.value}>{stat.value ?? "—"}</dd>
         </div>
       ))}
     </dl>

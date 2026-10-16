@@ -152,6 +152,34 @@ describe("createApiClient", () => {
     await expect(promise).rejects.toMatchObject({ kind: "http", status: 400 });
   });
 
+  it("uses the server's JSON error text as the http error message", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ error: "Cannot start a running run" }, { status: 409 }),
+    );
+    const promise = makeClient(fetchFn as unknown as typeof fetch).post("/x", {
+      body: {},
+    });
+    await expect(promise).rejects.toMatchObject({
+      kind: "http",
+      status: 409,
+      message: "Cannot start a running run",
+    });
+  });
+
+  it("falls back to a generic message when the error body is unreadable", async () => {
+    const fetchFn = vi.fn(
+      async () => new Response("<html>boom</html>", { status: 500 }),
+    );
+    const promise = makeClient(fetchFn as unknown as typeof fetch).post("/x", {
+      body: {},
+    });
+    await expect(promise).rejects.toMatchObject({
+      kind: "http",
+      status: 500,
+      message: "Request failed (HTTP 500).",
+    });
+  });
+
   it("del issues a DELETE and resolves on success", async () => {
     const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
     await makeClient(fetchFn as unknown as typeof fetch).del("/things/1", {});

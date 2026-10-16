@@ -24,3 +24,17 @@ export function fetchRun(
 ): Promise<RunDetail> {
   return client.get(`/api/runs/${id}`, { schema: runDetailSchema, signal });
 }
+
+export function startRun(
+  id: number,
+  client: ApiClient = dashboardClient,
+): Promise<void> {
+  return client.post(`/api/runs/${id}/start`, {});
+}
+
+export function stopRun(
+  id: number,
+  client: ApiClient = dashboardClient,
+): Promise<void> {
+  return client.post(`/api/runs/${id}/stop`, {});
+}

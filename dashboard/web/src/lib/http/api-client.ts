@@ -27,6 +27,22 @@ type RequestOptions = {
   params?: Params;
 };
 
+// Best-effort: the dashboard server answers failures with `{ "error": "..." }`.
+async function readErrorText(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.json();
+    if (typeof body === "object" && body !== null && "error" in body) {
+      const text = (body as { error: unknown }).error;
+      if (typeof text === "string" && text.trim()) {
+        return text;
+      }
+    }
+  } catch {
+    // Not JSON (or unreadable) — fall back to the generic message.
+  }
+  return null;
+}
+
 export function createApiClient(config: {
   baseUrl: string;
   fetchFn?: typeof fetch;
@@ -76,10 +92,11 @@ export function createApiClient(config: {
     }
 
     if (!response.ok) {
-      throw new ApiError(`Request failed (HTTP ${response.status}).`, {
-        kind: "http",
-        status: response.status,
-      });
+      throw new ApiError(
+        (await readErrorText(response)) ??
+          `Request failed (HTTP ${response.status}).`,
+        { kind: "http", status: response.status },
+      );
     }
 
     if (!schema) {
