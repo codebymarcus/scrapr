@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { createHub } from "./hub.mjs";
+import { previewRoutes } from "./routes/preview.mjs";
 import { projectRoutes } from "./routes/projects.mjs";
 import { runRoutes } from "./routes/runs.mjs";
 import { systemRoutes } from "./routes/system.mjs";
@@ -19,6 +20,14 @@ export function buildApp(deps = {}) {
   app.register(fastifyWebsocket);
   app.register(wsRoutes, { hub });
   app.register(systemRoutes, { driveStatus: deps.driveStatus });
+  app.register(previewRoutes, {
+    getBrowser: deps.getBrowser,
+    previewText: deps.previewText,
+    imagePreview: deps.imagePreview,
+    fetch: deps.fetch,
+    thumbMaxBytes: deps.thumbMaxBytes,
+    thumbTimeoutMs: deps.thumbTimeoutMs,
+  });
   if (deps.store) {
     app.register(projectRoutes, { store: deps.store });
     app.register(runRoutes, { store: deps.store, runOutDir: deps.runOutDir });
