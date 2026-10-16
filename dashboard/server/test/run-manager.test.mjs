@@ -327,3 +327,32 @@ test("after shutdown(), stopping the active run does not auto-start the queued r
   assert.equal(mgr.activeRunId(), null);
   db.close();
 });
+
+test("a built-in recipe run omits deps.resolveProfile so BatchRunner uses its URL-matched resolver", async () => {
+  const { db, store, emit } = setup();
+  const project = store.createProject({
+    name: "Built-in",
+    recipe: { name: "Batcave", contentType: "image", builtIn: true, builtInProfile: "batcave" },
+  });
+  const run = store.createRun({ projectId: project.id, label: "L" });
+  store.addItems(run.id, ["https://batcave.biz/1"]);
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  assert.equal(await mgr.start(run.id), "done");
+  const { deps, config } = factory.created[0];
+  assert.equal("resolveProfile" in deps, false);
+  assert.equal(typeof deps.createJobSource, "function");
+  assert.equal(typeof deps.onItem, "function");
+  assert.equal(config.imageRules, undefined);
+  db.close();
+});
+
+test("a data recipe run passes a bound deps.resolveProfile", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const run = makeRun(["https://e.com/1"]);
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  assert.equal(await mgr.start(run.id), "done");
+  assert.equal(typeof factory.created[0].deps.resolveProfile, "function");
+  db.close();
+});

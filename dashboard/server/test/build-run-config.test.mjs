@@ -81,3 +81,34 @@ test("contract: record base the engine writes equals the base the results route 
   assert.equal(resolveRecordBase(runConfig), resolveRecordBase({ out: outDir }));
   assert.equal(resolveRecordBase(runConfig), outDir);
 });
+
+test("built-in recipe builds an image config with output defaults and no imageRules", () => {
+  const recipe = { name: "Batcave", contentType: "image", builtIn: true, builtInProfile: "batcave" };
+  const cfg = buildRunConfig(recipe, { runOutDir: "/tmp/run-9" });
+  assert.equal(cfg.out, "/tmp/run-9");
+  assert.equal(cfg.url, null);
+  assert.equal(cfg.listFile, null);
+  assert.equal(cfg.text, false);
+  assert.equal(cfg.imageRules, undefined);
+  for (const k of ["cbz", "pdf", "keepLoose", "quality", "format", "drive", "driveFolder", "driveSubfolder"]) {
+    assert.equal(cfg[k], DEFAULTS[k], k);
+  }
+});
+
+test("built-in recipe honors recipe.output but still sets no imageRules or text wiring", () => {
+  const recipe = {
+    name: "B",
+    contentType: "text",
+    builtIn: true,
+    image: { rules: { minWidth: 400 } },
+    output: { cbz: true, keepLoose: false, quality: 60, format: "jpg", drive: true },
+  };
+  const cfg = buildRunConfig(recipe, { runOutDir: "/o" });
+  assert.equal(cfg.cbz, true);
+  assert.equal(cfg.keepLoose, false);
+  assert.equal(cfg.quality, 60);
+  assert.equal(cfg.format, "jpg");
+  assert.equal(cfg.drive, true);
+  assert.equal(cfg.text, false);
+  assert.equal(cfg.imageRules, undefined);
+});

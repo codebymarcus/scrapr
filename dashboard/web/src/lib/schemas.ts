@@ -64,6 +64,9 @@ export const recipeSchema = z.object({
   image: imageSchema.optional(),
   output: outputSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // Run with the engine's built-in site profile instead of generic rules.
+  builtIn: z.boolean().optional(),
+  builtInProfile: z.string().optional(),
 });
 
 export const projectSchema = z.object({
@@ -116,6 +119,8 @@ export const previewTextSchema = z.object({
   via: z.string().optional(),
   mode: z.string().optional(),
   fields: z.unknown().optional(),
+  // Name of the built-in recipe that matched the previewed page, if any.
+  builtInRecipe: z.string().nullish(),
   // Set when `status` is "fail", so the UI can say why.
   code: z.string().optional(),
   message: z.string().optional(),
@@ -132,9 +137,14 @@ export const previewImageSchema = z.object({
         height: z.number().optional(),
         selector: z.string().optional(),
         index: z.number().optional(),
+        // `data:image/webp;base64,...` captured in-page; absent when the
+        // image could not be captured, so the UI falls back to the proxy.
+        thumbnail: z.string().optional(),
       }),
     )
     .optional(),
+  // Name of the built-in recipe that matched the previewed page, if any.
+  builtInRecipe: z.string().nullish(),
   unenforcedRuleKeys: z.array(z.string()).optional(),
   // Set when `status` is "fail", so the UI can say why.
   code: z.string().optional(),

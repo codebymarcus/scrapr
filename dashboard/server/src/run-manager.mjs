@@ -100,9 +100,11 @@ export function createRunManager({
 
       const deps = {
         createJobSource: () => new StoreJobSource(store, runId, logger),
-        resolveProfile: boundResolver(recipe),
         onItem,
       };
+      // A built-in recipe omits resolveProfile so BatchRunner falls back to the engine's
+      // URL-matched resolver (the built-in profile); a data recipe binds its own profile.
+      if (!recipe.builtIn) deps.resolveProfile = boundResolver(recipe);
 
       entry.runner = runnerFactory(config, logger, deps);
       // stop() may have been requested between state change and runner creation.

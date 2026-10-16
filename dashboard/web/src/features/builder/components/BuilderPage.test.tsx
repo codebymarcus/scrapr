@@ -31,6 +31,8 @@ function setup(
     image?: () => Response;
     text?: () => Response;
     create?: () => Response;
+    run?: () => Response;
+    items?: () => Response;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -50,6 +52,14 @@ function setup(
         ? options.create()
         : json({ project: makeProject({ id: 7 }) }, 201);
     }
+    if (path === "/api/runs" && method === "POST") {
+      return options.run
+        ? options.run()
+        : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+    }
+    if (/^\/api\/runs\/\d+\/items$/.test(path) && method === "POST") {
+      return options.items ? options.items() : json({ added: 1 });
+    }
     return json({ error: "not found" }, 404);
   };
   const client = createApiClient({ baseUrl: BASE, fetchFn });
@@ -65,6 +75,7 @@ function setup(
             element={<BuilderPage client={client} apiBase={BASE} />}
           />
           <Route path="/projects" element={<p>Projects page</p>} />
+          <Route path="/" element={<p>Runs page</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -85,10 +96,11 @@ describe("BuilderPage", () => {
     await pasteUrlAndFetch();
 
     const first = await screen.findByRole("img", { name: "Candidate image 1" });
-    expect(first).toHaveAttribute("src", thumbSrc(BASE, CANDIDATES[0].url));
+    // Thumbnails carry the previewed page URL as the Referer (hotlink defeat).
+    expect(first).toHaveAttribute("src", thumbSrc(BASE, CANDIDATES[0].url, PAGE_URL));
     expect(screen.getByRole("img", { name: "Candidate image 4" })).toHaveAttribute(
       "src",
-      thumbSrc(BASE, CANDIDATES[3].url),
+      thumbSrc(BASE, CANDIDATES[3].url, PAGE_URL),
     );
     const preview = calls.find((c) => c.path === "/api/preview/image");
     expect(preview?.body).toMatchObject({
@@ -262,6 +274,193 @@ describe("BuilderPage", () => {
     expect(screen.getByRole("status", { name: "Rule result" })).toHaveTextContent(
       "Rule keeps 2 of 4 images",
     );
+  });
+
+  describe("built-in recipe", () => {
+    const CREATE = "Create a run with the built-in recipe";
+
+    it("shows the notice naming the recipe when the preview matched one", async () => {
+      setup({ image: () => json({ ...okImages, builtInRecipe: "batcave" }) });
+
+      await pasteUrlAndFetch();
+
+      const message = await screen.findByText(
+        "This site has a built-in recipe (batcave). You can run it directly.",
+      );
+      expect(message.closest("[role='note']")).not.toBeNull();
+      expect(screen.getByRole("button", { name: CREATE })).toBeEnabled();
+      // The generic grid stays available as the secondary path.
+      expect(
+        await screen.findByRole("img", { name: "Candidate image 1" }),
+      ).toBeInTheDocument();
+    });
+
+    it("shows no notice when no built-in recipe matched", async () => {
+      setup({ image: () => json({ ...okImages, builtInRecipe: null }) });
+
+      await pasteUrlAndFetch();
+      await screen.findByRole("img", { name: "Candidate image 1" });
+
+      expect(screen.queryByText(/built-in recipe/)).toBeNull();
+      expect(screen.queryByRole("button", { name: CREATE })).toBeNull();
+    });
+
+    it("shows the notice for a text preview too", async () => {
+      setup({
+        text: () => json({ status: "ok", mode: "article", builtInRecipe: "batcave" }),
+      });
+      await userEvent.click(screen.getByRole("radio", { name: "Text" }));
+
+      await pasteUrlAndFetch("https://batcave.test/read/1");
+
+      expect(await screen.findByRole("button", { name: CREATE })).toBeInTheDocument();
+    });
+
+    it("creates a built-in project, then a run bound to it, then opens Runs", async () => {
+      const { calls } = setup({
+        image: () => json({ ...okImages, builtInRecipe: "batcave" }),
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      const writes = calls.filter((c) => c.method === "POST" && c.path !== "/api/preview/image");
+      expect(writes.map((c) => c.path)).toEqual([
+        "/api/projects",
+        "/api/runs",
+        "/api/runs/11/items",
+      ]);
+      expect(writes[0].body).toEqual({
+        name: "batcave (built-in)",
+        recipe: {
+          name: "batcave",
+          contentType: "image",
+          builtIn: true,
+          builtInProfile: "batcave",
+        },
+      });
+      expect(writes[1].body).toEqual({ projectId: 7 });
+      // The previewed URL becomes the run's work, so "run it directly" is literal.
+      expect(writes[2].body).toEqual({ urls: [PAGE_URL] });
+    });
+
+    it("uses the typed project name when there is one", async () => {
+      const { calls } = setup({
+        image: () => json({ ...okImages, builtInRecipe: "batcave" }),
+      });
+      await userEvent.type(screen.getByLabelText("Project name"), "My comic");
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+
+      await screen.findByText("Runs page");
+      expect(calls.find((c) => c.path === "/api/projects")?.body).toMatchObject({
+        name: "My comic",
+        recipe: { builtIn: true, builtInProfile: "batcave" },
+      });
+    });
+
+    it("shows the error inline and stays put when creating fails", async () => {
+      const { calls } = setup({
+        image: () => json({ ...okImages, builtInRecipe: "batcave" }),
+        create: () => json({ error: "Project name already exists" }, 409),
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Project name already exists");
+      expect(screen.queryByText("Runs page")).toBeNull();
+      expect(calls.some((c) => c.path === "/api/runs")).toBe(false);
+    });
+  });
+
+  describe("built-in recipe retries", () => {
+    const CREATE = "Create a run with the built-in recipe";
+    const batcave = () => json({ ...okImages, builtInRecipe: "batcave" });
+
+    it("reuses the created project when the run POST fails, then succeeds", async () => {
+      let runAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        run: () => {
+          runAttempts += 1;
+          return runAttempts === 1
+            ? json({ error: "run queue unavailable" }, 500)
+            : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+        },
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "run queue unavailable",
+      );
+      expect(screen.queryByText("Runs page")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      const runs = calls.filter((c) => c.path === "/api/runs");
+      expect(runs).toHaveLength(2);
+      expect(runs[1].body).toEqual({ projectId: 7 });
+    });
+
+    it("keeps the created project across a same-URL re-fetch", async () => {
+      let runAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        run: () => {
+          runAttempts += 1;
+          return runAttempts === 1
+            ? json({ error: "run queue unavailable" }, 500)
+            : json({ run: { id: 11, project_id: 7, state: "queued" } }, 201);
+        },
+      });
+      await pasteUrlAndFetch();
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      await screen.findByRole("alert");
+
+      // Re-run the preview on the same URL without editing it.
+      await userEvent.click(screen.getByRole("button", { name: "Fetch & detect" }));
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      const runs = calls.filter((c) => c.path === "/api/runs");
+      expect(runs).toHaveLength(2);
+      expect(runs[1].body).toEqual({ projectId: 7 });
+    });
+
+    it("keeps the run and reuses it when enqueueing the URL fails", async () => {
+      let itemAttempts = 0;
+      const { calls } = setup({
+        image: batcave,
+        items: () => {
+          itemAttempts += 1;
+          return itemAttempts === 1
+            ? json({ error: "could not enqueue" }, 500)
+            : json({ added: 1 });
+        },
+      });
+      await pasteUrlAndFetch();
+
+      await userEvent.click(await screen.findByRole("button", { name: CREATE }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("could not enqueue");
+      expect(screen.queryByText("Runs page")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: CREATE }));
+
+      expect(await screen.findByText("Runs page")).toBeInTheDocument();
+      expect(calls.filter((c) => c.path === "/api/projects")).toHaveLength(1);
+      expect(calls.filter((c) => c.path === "/api/runs")).toHaveLength(1);
+      const items = calls.filter((c) => c.path === "/api/runs/11/items");
+      expect(items).toHaveLength(2);
+      expect(items[1].body).toEqual({ urls: [PAGE_URL] });
+    });
   });
 
   describe("text scope", () => {

@@ -1,10 +1,83 @@
 // src/preview/image-preview.mjs
 // No-write image preview for a dashboard's project builder. Opens the page in the
 // browser, enumerates the candidate <img> elements and returns descriptors for a
-// thumbnail grid. It downloads/packages nothing (thumbnail bytes are fetched by
-// the backend's proxy) and never throws into the caller.
+// thumbnail grid. It downloads/packages nothing. Bytes the page itself loaded are
+// captured from its own network responses and returned as small downscaled
+// data-URI thumbnails (protected sites 403 any out-of-page fetch); candidates
+// that were not captured carry no thumbnail and are proxied by the backend.
+// Never throws into the caller.
+import defaultSharp from "sharp";
 import { openReader as defaultOpenReader } from "../navigation.mjs";
 import { mapError, FailureCode } from "../strategies/strategy.mjs";
+
+export const CAPTURE_MAX_BYTES = 5_000_000; // raw body cap per captured image
+export const CAPTURE_MAX_IMAGES = 80; // aggregate count bound
+export const CAPTURE_TOTAL_MAX = 80_000_000; // aggregate raw-bytes budget
+export const THUMB_WIDTH = 320;
+export const THUMB_DATA_CAP = 64_000; // max length of the returned data URI
+
+// Attach a response listener that collects image bytes the page loads. Call it
+// BEFORE navigating so responses during load are seen. Returns a live Map
+// (url -> { buffer, contentType }); `map.settled()` resolves once all in-flight
+// body reads have finished.
+export function captureImageBytes(page, deps = {}) {
+  const maxBytes = deps.captureMaxBytes ?? CAPTURE_MAX_BYTES;
+  const maxImages = deps.captureMaxImages ?? CAPTURE_MAX_IMAGES;
+  const totalMax = deps.captureTotalMax ?? CAPTURE_TOTAL_MAX;
+  let total = 0;
+  let inflight = 0;
+  const map = new Map();
+  const pending = new Set();
+  Object.defineProperty(map, "settled", {
+    enumerable: false,
+    value: async () => { await Promise.allSettled([...pending]); },
+  });
+  if (typeof page?.on !== "function") return map;
+  page.on("response", (resp) => {
+    // Aggregate bounds: ignore further image responses once full (inflight
+    // reads count toward the cap so a burst cannot overshoot it).
+    if (map.size + inflight >= maxImages || total >= totalMax) return;
+    inflight++;
+    const task = (async () => {
+      try {
+        const url = resp.url();
+        if (!url || url.startsWith("data:") || map.has(url)) return;
+        const headers = resp.headers?.() || {};
+        const contentType = String(headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+        const isImage = resp.request?.().resourceType?.() === "image" || contentType.startsWith("image/");
+        if (!isImage || !resp.ok()) return;
+        const declared = Number(headers["content-length"]);
+        if (Number.isFinite(declared) && declared > maxBytes) return; // skip without reading
+        const buffer = await resp.body();
+        if (!buffer || buffer.length > maxBytes || map.has(url)) return;
+        if (map.size >= maxImages || total + buffer.length > totalMax) return;
+        total += buffer.length;
+        map.set(url, { buffer, contentType });
+      } catch { /* body unavailable (redirect/aborted) — skip */
+      } finally { inflight--; }
+    })();
+    pending.add(task);
+    task.finally(() => pending.delete(task));
+  });
+  return map;
+}
+
+// Downscale to a small data-URI thumbnail; null on failure or if still too big.
+export async function toThumbnail(buffer, _contentType, deps = {}) {
+  const sharp = deps.sharp || defaultSharp;
+  try {
+    // Always re-encode to WebP so the label matches the bytes regardless of the
+    // upstream type (e.g. SVG input would otherwise rasterize to PNG).
+    const out = await sharp(buffer)
+      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    const uri = `data:image/webp;base64,${out.toString("base64")}`;
+    return uri.length > (deps.thumbDataCap ?? THUMB_DATA_CAP) ? null : uri;
+  } catch {
+    return null;
+  }
+}
 
 // Runs in the page: must be self-contained (no Node-scope references).
 function collectInPage() {
@@ -41,6 +114,7 @@ export async function imagePreview({ url, session, config, logger, deps = {} }) 
   let page;
   try {
     page = await session.newPage();
+    const captured = captureImageBytes(page, deps);
     const resp = await openReader(page, url, config, logger);
     // openReader never throws on a failed navigation: it returns null (or the
     // final response). Classify so transport failures are reported distinctly.
@@ -48,6 +122,19 @@ export async function imagePreview({ url, session, config, logger, deps = {} }) 
     const status = resp.status?.();
     if (typeof status === "number" && status >= 400) return { status: "fail", code: FailureCode.HTTP_ERROR, images: [] };
     const images = await collectCandidateImages(page, deps);
+    await captured.settled();
+    const have = new Set(images.map((i) => i.url));
+    for (const capturedUrl of captured.keys()) {
+      if (!have.has(capturedUrl)) {
+        images.push({ url: capturedUrl, width: 0, height: 0, selector: "", index: images.length });
+      }
+    }
+    for (const img of images) {
+      const hit = captured.get(img.url);
+      if (!hit) continue;
+      const thumbnail = await toThumbnail(hit.buffer, hit.contentType, deps);
+      if (thumbnail) img.thumbnail = thumbnail;
+    }
     return { status: "ok", via: "browser", images };
   } catch (e) {
     logger?.error?.(`image preview failed for ${url}: ${e?.message || e}`);

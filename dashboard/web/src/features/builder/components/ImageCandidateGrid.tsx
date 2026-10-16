@@ -12,15 +12,19 @@ type ImageCandidateGridProps = {
   /** The rule currently in the form; the grid shows what it would keep. */
   rules: ImageRules;
   onToggle: (index: number, keep: boolean) => void;
+  /** The previewed page URL, sent to the proxy as the Referer so hotlink-
+   *  protected images (checked against the embedding page) load. */
+  pageUrl?: string;
   /** Injectable for tests; production uses the configured dashboard origin. */
   apiBase?: string;
 };
 
-// Candidate images are loaded through the server's proxy: it sets a Referer
-// and caps size, and the browser never touches the (possibly hotlink
-// protected) origin directly.
-function thumbUrl(apiBase: string, url: string): string {
-  return `${apiBase.replace(/\/+$/, "")}/api/thumb?url=${encodeURIComponent(url)}`;
+// Candidates without a captured `thumbnail` data URI are loaded through the
+// server's proxy: it sets a Referer and caps size, and the browser never
+// touches the (possibly hotlink protected) origin directly.
+function thumbUrl(apiBase: string, url: string, pageUrl?: string): string {
+  const referer = pageUrl ? `&referer=${encodeURIComponent(pageUrl)}` : "";
+  return `${apiBase.replace(/\/+$/, "")}/api/thumb?url=${encodeURIComponent(url)}${referer}`;
 }
 
 function Thumbnail({ src, number }: { src: string; number: number }) {
@@ -61,6 +65,7 @@ export function ImageCandidateGrid({
   kept,
   rules,
   onToggle,
+  pageUrl,
   apiBase = API_BASE,
 }: ImageCandidateGridProps) {
   const verdicts = candidates.map((candidate) => keepsCandidate(candidate, rules));
@@ -82,7 +87,14 @@ export function ImageCandidateGrid({
               className={`${styles.item} ${ruleKeeps ? styles.ruleKeeps : styles.ruleDrops}`}
               data-rule={ruleKeeps ? "keep" : "drop"}
             >
-              <Thumbnail src={thumbUrl(apiBase, candidate.url)} number={number} />
+              <Thumbnail
+                src={
+                  candidate.thumbnail
+                    ? candidate.thumbnail
+                    : thumbUrl(apiBase, candidate.url, pageUrl)
+                }
+                number={number}
+              />
               <Text variant="small" tone="secondary" className={styles.size}>
                 {describeSize(candidate)}
               </Text>

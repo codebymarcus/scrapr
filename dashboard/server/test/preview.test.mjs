@@ -46,6 +46,7 @@ test("text preview returns the previewText result using the pooled session", asy
     via: "browser",
     mode: "selector",
     fields: [{ name: "title", value: "Hi" }],
+    builtInRecipe: null,
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://example.com/a");
@@ -114,6 +115,49 @@ test("image preview includes unenforcedRuleKeys for selector rules", async () =>
   await app.close();
 });
 
+test("image preview passes a candidate's thumbnail data URI through unchanged", async () => {
+  const thumbnail = "data:image/webp;base64,AAAA";
+  const imagePreview = async () => ({
+    status: "ok",
+    via: "browser",
+    images: [
+      { url: "https://example.com/i.png", width: 1, height: 1, selector: "img", index: 0, thumbnail },
+      { url: "https://example.com/j.png", width: 1, height: 1, selector: "img", index: 1 },
+    ],
+  });
+  const app = buildApp({ getBrowser, imagePreview });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/preview/image",
+    payload: { url: "https://example.com", recipe },
+  });
+  assert.equal(res.statusCode, 200);
+  const { images } = res.json();
+  assert.equal(images[0].thumbnail, thumbnail);
+  assert.equal("thumbnail" in images[1], false);
+  await app.close();
+});
+
+test("both preview endpoints report builtInRecipe (batcave match, null for generic)", async () => {
+  const app = buildApp({
+    getBrowser,
+    previewText: async () => ({ status: "ok", via: "browser", mode: "selector", fields: [] }),
+    imagePreview: async () => ({ status: "ok", via: "browser", images: [] }),
+  });
+  const cases = [
+    ["/api/preview/text", "https://batcave.biz/event/world-war-hulk/1", "batcave"],
+    ["/api/preview/text", "https://example.com/a", null],
+    ["/api/preview/image", "https://batcave.biz/event/world-war-hulk/1", "batcave"],
+    ["/api/preview/image", "https://example.com/a", null],
+  ];
+  for (const [path, url, expected] of cases) {
+    const res = await app.inject({ method: "POST", url: path, payload: { url, recipe } });
+    assert.equal(res.statusCode, 200, `${path} ${url}`);
+    assert.equal(res.json().builtInRecipe, expected, `${path} ${url}`);
+  }
+  await app.close();
+});
+
 test("thumb streams an image through the server and sets Referer to the origin", async () => {
   let seen;
   const fetch = async (url, init) => {
@@ -127,6 +171,41 @@ test("thumb streams an image through the server and sets Referer to the origin",
   assert.equal(res.headers["content-type"], "image/png");
   assert.deepEqual([...res.rawPayload], [1, 2, 3, 4, 5]);
   assert.equal(seen.url, target);
+  assert.equal(seen.init.headers.Referer ?? seen.init.headers.referer, "https://cdn.example.com/");
+  await app.close();
+});
+
+test("thumb uses the provided page URL as Referer (defeats hotlink protection)", async () => {
+  let seen;
+  const fetch = async (url, init) => {
+    seen = { url, init };
+    return imageResponse([new Uint8Array([9])]);
+  };
+  const app = buildApp({ fetch });
+  const target = "https://img.batcave.biz/img/1-abc.jpg";
+  const page = "https://batcave.biz/event/world-war-hulk/1";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/thumb?url=${encodeURIComponent(target)}&referer=${encodeURIComponent(page)}`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(seen.init.headers.Referer ?? seen.init.headers.referer, page);
+  await app.close();
+});
+
+test("thumb ignores a non-http(s) referer and falls back to the image origin", async () => {
+  let seen;
+  const fetch = async (url, init) => {
+    seen = { url, init };
+    return imageResponse([new Uint8Array([1])]);
+  };
+  const app = buildApp({ fetch });
+  const target = "https://cdn.example.com/a.png";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/thumb?url=${encodeURIComponent(target)}&referer=${encodeURIComponent("javascript:alert(1)")}`,
+  });
+  assert.equal(res.statusCode, 200);
   assert.equal(seen.init.headers.Referer ?? seen.init.headers.referer, "https://cdn.example.com/");
   await app.close();
 });
