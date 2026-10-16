@@ -19,9 +19,9 @@ type ImageCandidateGridProps = {
   apiBase?: string;
 };
 
-// Candidate images are loaded through the server's proxy: it sets a Referer
-// and caps size, and the browser never touches the (possibly hotlink
-// protected) origin directly.
+// Candidates without a captured `thumbnail` data URI are loaded through the
+// server's proxy: it sets a Referer and caps size, and the browser never
+// touches the (possibly hotlink protected) origin directly.
 function thumbUrl(apiBase: string, url: string, pageUrl?: string): string {
   const referer = pageUrl ? `&referer=${encodeURIComponent(pageUrl)}` : "";
   return `${apiBase.replace(/\/+$/, "")}/api/thumb?url=${encodeURIComponent(url)}${referer}`;
@@ -87,7 +87,14 @@ export function ImageCandidateGrid({
               className={`${styles.item} ${ruleKeeps ? styles.ruleKeeps : styles.ruleDrops}`}
               data-rule={ruleKeeps ? "keep" : "drop"}
             >
-              <Thumbnail src={thumbUrl(apiBase, candidate.url, pageUrl)} number={number} />
+              <Thumbnail
+                src={
+                  candidate.thumbnail
+                    ? candidate.thumbnail
+                    : thumbUrl(apiBase, candidate.url, pageUrl)
+                }
+                number={number}
+              />
               <Text variant="small" tone="secondary" className={styles.size}>
                 {describeSize(candidate)}
               </Text>

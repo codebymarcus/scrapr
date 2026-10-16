@@ -119,6 +119,23 @@ describe("preview + drive schemas", () => {
     ).toBe(true);
   });
 
+  it("accepts a captured thumbnail and the built-in recipe name", () => {
+    const thumbnail = "data:image/webp;base64,AAAA";
+    const parsed = previewImageSchema.parse({
+      status: "ok",
+      images: [{ url: "https://x/a.jpg", thumbnail }],
+      builtInRecipe: "batcave",
+    });
+    expect(parsed.images?.[0]?.thumbnail).toBe(thumbnail);
+    expect(parsed.builtInRecipe).toBe("batcave");
+  });
+
+  it("accepts a null built-in recipe", () => {
+    expect(
+      previewImageSchema.safeParse({ status: "ok", builtInRecipe: null }).success,
+    ).toBe(true);
+  });
+
   it("keeps the code and message of a failed preview", () => {
     const failed = { status: "fail", code: "HTTP_ERROR", message: "403" };
     expect(previewImageSchema.parse(failed)).toMatchObject(failed);

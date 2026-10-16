@@ -73,6 +73,28 @@ describe("ImageCandidateGrid", () => {
     );
   });
 
+  it("renders a captured data-URI thumbnail directly instead of the proxy", () => {
+    const thumbnail = "data:image/webp;base64,AAAA";
+    render(
+      <ImageCandidateGrid
+        candidates={[{ ...HERO_1, thumbnail }, ICON]}
+        kept={[true, true]}
+        rules={{}}
+        apiBase={BASE}
+        pageUrl="https://batcave.biz/event/1"
+        onToggle={vi.fn()}
+      />,
+    );
+    const captured = screen.getByRole("img", { name: "Candidate image 1" });
+    expect(captured).toHaveAttribute("src", thumbnail);
+    expect(captured.getAttribute("src")).not.toContain("/api/thumb");
+    // A candidate without a capture still goes through the proxy.
+    expect(screen.getByRole("img", { name: "Candidate image 2" })).toHaveAttribute(
+      "src",
+      thumbSrc(BASE, ICON.url, "https://batcave.biz/event/1"),
+    );
+  });
+
   it("reports the toggled candidate", async () => {
     const onToggle = vi.fn();
     render(
