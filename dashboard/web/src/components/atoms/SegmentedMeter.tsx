@@ -5,14 +5,18 @@ type SegmentedMeterProps = {
   total: number;
   tone?: "accent" | "warn";
   segments?: number;
+  label?: string;
 };
 
-function litSegments(value: number, total: number, segments: number): number {
-  if (total <= 0) {
+function safeTotal(total: number): number {
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
+function safeValue(value: number, total: number): number {
+  if (total <= 0 || !Number.isFinite(value)) {
     return 0;
   }
-  const lit = Math.round((value / total) * segments);
-  return Math.min(segments, Math.max(0, lit));
+  return Math.min(total, Math.max(0, value));
 }
 
 // LED-style meter: discrete blocks in an inset groove, lit left to right.
@@ -21,16 +25,20 @@ export function SegmentedMeter({
   total,
   tone = "accent",
   segments = 22,
+  label,
 }: SegmentedMeterProps) {
-  const lit = litSegments(value, total, segments);
+  const max = safeTotal(total);
+  const now = safeValue(value, max);
+  const lit = max > 0 ? Math.round((now / max) * segments) : 0;
 
   return (
     <div
       className={`${styles.meter} ${styles[tone]}`}
       role="progressbar"
-      aria-valuenow={value}
+      aria-label={label}
+      aria-valuenow={now}
       aria-valuemin={0}
-      aria-valuemax={total}
+      aria-valuemax={max}
     >
       {Array.from({ length: segments }, (_, index) => (
         <span

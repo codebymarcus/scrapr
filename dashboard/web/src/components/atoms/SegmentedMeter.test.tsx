@@ -43,4 +43,39 @@ describe("SegmentedMeter", () => {
     render(<SegmentedMeter value={30} total={10} segments={22} />);
     expect(litCount()).toBe(22);
   });
+
+  it("sets the accessible name from label", () => {
+    render(<SegmentedMeter value={128} total={240} label="128 of 240 pages" />);
+    expect(
+      screen.getByRole("progressbar", { name: "128 of 240 pages" }),
+    ).toBeInTheDocument();
+  });
+
+  it("clamps aria-valuenow to total when value exceeds it", () => {
+    render(<SegmentedMeter value={300} total={240} />);
+    const bar = screen.getByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "240");
+    expect(bar).toHaveAttribute("aria-valuemax", "240");
+  });
+
+  it("clamps negative and NaN values to 0", () => {
+    const { rerender } = render(<SegmentedMeter value={-5} total={10} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "0",
+    );
+    rerender(<SegmentedMeter value={Number.NaN} total={10} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "0",
+    );
+  });
+
+  it("reports aria-valuenow 0 when total is 0", () => {
+    render(<SegmentedMeter value={5} total={0} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "0",
+    );
+  });
 });
