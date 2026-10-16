@@ -89,7 +89,15 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--color-text-secondary);
+}
+
+.connected {
   background: var(--color-positive);
+}
+
+.disconnected {
+  background: var(--color-negative);
 }
 
 @include media.until(bp.$bp-controls) {

@@ -7,6 +7,9 @@ import { ListIcon } from "@/components/atoms/icons/ListIcon";
 import { Text } from "@/components/atoms/Text";
 import { ThemeToggle } from "@/components/molecules/ThemeToggle";
 import type { Theme } from "@/app/theme";
+import { useHealth } from "@/features/health";
+import { dashboardClient } from "@/lib/api-client";
+import type { ApiClient } from "@/lib/http/api-client";
 import styles from "./Sidebar.module.scss";
 
 type NavItem = {
@@ -25,9 +28,30 @@ const NAV_ITEMS: NavItem[] = [
 type SidebarProps = {
   theme: Theme;
   onToggleTheme: () => void;
+  /** Injectable for tests; production uses the shared dashboard client. */
+  client?: ApiClient;
 };
 
-export function Sidebar({ theme, onToggleTheme }: SidebarProps) {
+type EngineStatus = "checking" | "connected" | "disconnected";
+
+const ENGINE_LABELS: Record<EngineStatus, string> = {
+  checking: "Checking engine…",
+  connected: "Engine connected",
+  disconnected: "Engine disconnected",
+};
+
+export function Sidebar({
+  theme,
+  onToggleTheme,
+  client = dashboardClient,
+}: SidebarProps) {
+  const health = useHealth(client);
+  const engine: EngineStatus = health.isPending
+    ? "checking"
+    : health.data?.ok
+      ? "connected"
+      : "disconnected";
+
   return (
     <aside className={styles.sidebar}>
       <Text as="div" variant="title" className={styles.brand}>
@@ -54,9 +78,22 @@ export function Sidebar({ theme, onToggleTheme }: SidebarProps) {
       </nav>
 
       <footer className={styles.footer}>
-        <Text as="div" variant="small" tone="secondary" className={styles.status}>
-          <span className={styles.dot} aria-hidden="true" />
-          Engine connected
+        <Text
+          as="div"
+          variant="small"
+          tone="secondary"
+          className={styles.status}
+          role="status"
+        >
+          <span
+            className={
+              engine === "checking"
+                ? styles.dot
+                : `${styles.dot} ${styles[engine]}`
+            }
+            aria-hidden="true"
+          />
+          {ENGINE_LABELS[engine]}
         </Text>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </footer>

@@ -66,10 +66,14 @@ describe("App shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the engine-connected indicator in the sidebar", () => {
+  it("shows an engine status indicator in the sidebar", () => {
     render(<App />);
 
-    expect(screen.getByText(/engine connected/i)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("complementary")).getByText(
+        /checking engine|engine (connected|disconnected)/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("wires the theme toggle to the preferences store", async () => {
