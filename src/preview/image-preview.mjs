@@ -11,6 +11,8 @@ import { openReader as defaultOpenReader } from "../navigation.mjs";
 import { mapError, FailureCode } from "../strategies/strategy.mjs";
 
 export const CAPTURE_MAX_BYTES = 5_000_000; // raw body cap per captured image
+export const CAPTURE_MAX_IMAGES = 80; // aggregate count bound
+export const CAPTURE_TOTAL_MAX = 80_000_000; // aggregate raw-bytes budget
 export const THUMB_WIDTH = 320;
 export const THUMB_DATA_CAP = 64_000; // max length of the returned data URI
 
@@ -20,6 +22,10 @@ export const THUMB_DATA_CAP = 64_000; // max length of the returned data URI
 // body reads have finished.
 export function captureImageBytes(page, deps = {}) {
   const maxBytes = deps.captureMaxBytes ?? CAPTURE_MAX_BYTES;
+  const maxImages = deps.captureMaxImages ?? CAPTURE_MAX_IMAGES;
+  const totalMax = deps.captureTotalMax ?? CAPTURE_TOTAL_MAX;
+  let total = 0;
+  let inflight = 0;
   const map = new Map();
   const pending = new Set();
   Object.defineProperty(map, "settled", {
@@ -28,17 +34,27 @@ export function captureImageBytes(page, deps = {}) {
   });
   if (typeof page?.on !== "function") return map;
   page.on("response", (resp) => {
+    // Aggregate bounds: ignore further image responses once full (inflight
+    // reads count toward the cap so a burst cannot overshoot it).
+    if (map.size + inflight >= maxImages || total >= totalMax) return;
+    inflight++;
     const task = (async () => {
       try {
         const url = resp.url();
         if (!url || url.startsWith("data:") || map.has(url)) return;
-        const contentType = String(resp.headers?.()["content-type"] || "").split(";")[0].trim().toLowerCase();
+        const headers = resp.headers?.() || {};
+        const contentType = String(headers["content-type"] || "").split(";")[0].trim().toLowerCase();
         const isImage = resp.request?.().resourceType?.() === "image" || contentType.startsWith("image/");
         if (!isImage || !resp.ok()) return;
+        const declared = Number(headers["content-length"]);
+        if (Number.isFinite(declared) && declared > maxBytes) return; // skip without reading
         const buffer = await resp.body();
         if (!buffer || buffer.length > maxBytes || map.has(url)) return;
+        if (map.size >= maxImages || total + buffer.length > totalMax) return;
+        total += buffer.length;
         map.set(url, { buffer, contentType });
-      } catch { /* body unavailable (redirect/aborted) — skip */ }
+      } catch { /* body unavailable (redirect/aborted) — skip */
+      } finally { inflight--; }
     })();
     pending.add(task);
     task.finally(() => pending.delete(task));
@@ -47,12 +63,16 @@ export function captureImageBytes(page, deps = {}) {
 }
 
 // Downscale to a small data-URI thumbnail; null on failure or if still too big.
-export async function toThumbnail(buffer, contentType, deps = {}) {
+export async function toThumbnail(buffer, _contentType, deps = {}) {
   const sharp = deps.sharp || defaultSharp;
   try {
-    const out = await sharp(buffer).resize({ width: THUMB_WIDTH, withoutEnlargement: true }).toBuffer();
-    const type = typeof contentType === "string" && /^image\/[a-z0-9.+-]+$/i.test(contentType) ? contentType : "image/jpeg";
-    const uri = `data:${type};base64,${out.toString("base64")}`;
+    // Always re-encode to WebP so the label matches the bytes regardless of the
+    // upstream type (e.g. SVG input would otherwise rasterize to PNG).
+    const out = await sharp(buffer)
+      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    const uri = `data:image/webp;base64,${out.toString("base64")}`;
     return uri.length > (deps.thumbDataCap ?? THUMB_DATA_CAP) ? null : uri;
   } catch {
     return null;

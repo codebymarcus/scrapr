@@ -2,6 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collectCandidateImages, imagePreview, captureImageBytes, toThumbnail, THUMB_DATA_CAP, CAPTURE_MAX_BYTES } from "../src/preview/image-preview.mjs";
 
+// Fake sharp: resize().webp().toBuffer(); records that webp was used.
+function fakeSharp(toBuffer, calls = []) {
+  return () => ({ resize: () => ({ webp: (opts) => { calls.push(opts); return { toBuffer }; } }) });
+}
+
 const noopLogger = { info() {}, warn() {}, muted() {}, success() {}, error() {}, step() {}, progressBar() {} };
 
 test("collectCandidateImages returns descriptors from the page", async () => {
@@ -110,20 +115,18 @@ test("captureImageBytes tolerates a page without .on and body() failures", async
 });
 
 test("toThumbnail returns a data URI using an injected sharp", async () => {
-  const sharp = () => ({ resize: () => ({ toBuffer: async () => Buffer.from("tiny") }) });
+  const sharp = fakeSharp(async () => Buffer.from("tiny"));
   const uri = await toThumbnail(Buffer.from("raw"), "image/png", { sharp });
-  assert.equal(uri, `data:image/png;base64,${Buffer.from("tiny").toString("base64")}`);
-  const fallback = await toThumbnail(Buffer.from("raw"), "application/octet-stream", { sharp });
-  assert.ok(fallback.startsWith("data:image/jpeg;base64,"));
+  assert.equal(uri, `data:image/webp;base64,${Buffer.from("tiny").toString("base64")}`);
 });
 
 test("toThumbnail returns null when sharp throws", async () => {
-  const sharp = () => ({ resize: () => ({ toBuffer: async () => { throw new Error("bad image"); } }) });
+  const sharp = fakeSharp(async () => { throw new Error("bad image"); });
   assert.equal(await toThumbnail(Buffer.from("raw"), "image/png", { sharp }), null);
 });
 
 test("toThumbnail returns null when the data URI exceeds THUMB_DATA_CAP", async () => {
-  const sharp = () => ({ resize: () => ({ toBuffer: async () => Buffer.alloc(THUMB_DATA_CAP) }) });
+  const sharp = fakeSharp(async () => Buffer.alloc(THUMB_DATA_CAP));
   assert.equal(await toThumbnail(Buffer.from("raw"), "image/png", { sharp }), null);
 });
 
@@ -134,7 +137,7 @@ test("imagePreview attaches thumbnails to captured candidates and merges capture
     { url: "https://x/nocap.png", width: 10, height: 10, selector: "img.b", index: 1 },
   ];
   page.close = async () => {};
-  const sharp = () => ({ resize: () => ({ toBuffer: async () => Buffer.from("T") }) });
+  const sharp = fakeSharp(async () => Buffer.from("T"));
   const openReader = async (p) => {
     p.emit(fakeResp({ url: "https://x/cap.png", body: Buffer.from("1") }));
     p.emit(fakeResp({ url: "https://x/only-net.png", body: Buffer.from("2") }));
@@ -145,7 +148,7 @@ test("imagePreview attaches thumbnails to captured candidates and merges capture
   assert.equal(res.status, "ok");
   assert.equal(res.images.length, 3);
   const by = Object.fromEntries(res.images.map((i) => [i.url, i]));
-  assert.ok(by["https://x/cap.png"].thumbnail.startsWith("data:image/png;base64,"));
+  assert.ok(by["https://x/cap.png"].thumbnail.startsWith("data:image/webp;base64,"));
   assert.equal("thumbnail" in by["https://x/nocap.png"], false);
   assert.ok(by["https://x/only-net.png"].thumbnail);
   assert.equal(by["https://x/only-net.png"].width, 0);
@@ -157,9 +160,52 @@ test("imagePreview omits thumbnail when toThumbnail yields null", async () => {
   const page = fakeEventPage();
   page.evaluate = async () => [{ url: "https://x/cap.png", width: 1, height: 1, selector: "img", index: 0 }];
   page.close = async () => {};
-  const sharp = () => ({ resize: () => ({ toBuffer: async () => { throw new Error("nope"); } }) });
+  const sharp = fakeSharp(async () => { throw new Error("nope"); });
   const openReader = async (p) => { p.emit(fakeResp({ url: "https://x/cap.png" })); return { status: () => 200 }; };
   const res = await imagePreview({ url: "https://x", session: { async newPage() { return page; } },
     config: {}, logger: noopLogger, deps: { openReader, sharp } });
   assert.equal("thumbnail" in res.images[0], false);
+});
+
+test("toThumbnail always encodes webp and labels image/webp regardless of input type", async () => {
+  const calls = [];
+  const sharp = fakeSharp(async () => Buffer.from("tiny"), calls);
+  for (const ct of ["image/svg+xml", "image/png", "application/octet-stream", ""]) {
+    const uri = await toThumbnail(Buffer.from("raw"), ct, { sharp });
+    assert.equal(uri, `data:image/webp;base64,${Buffer.from("tiny").toString("base64")}`);
+  }
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].quality, 72);
+});
+
+test("captureImageBytes stops capturing once the count cap is hit", async () => {
+  const page = fakeEventPage();
+  const map = captureImageBytes(page, { captureMaxImages: 3 });
+  for (let i = 0; i < 10; i++) page.emit(fakeResp({ url: `https://x/${i}.png` }));
+  await map.settled();
+  assert.equal(map.size, 3);
+  page.emit(fakeResp({ url: "https://x/late.png" }));
+  await map.settled();
+  assert.equal(map.size, 3);
+});
+
+test("captureImageBytes stops capturing once the total-bytes budget is hit", async () => {
+  const page = fakeEventPage();
+  const map = captureImageBytes(page, { captureTotalMax: 10 });
+  for (let i = 0; i < 5; i++) page.emit(fakeResp({ url: `https://x/${i}.png`, body: Buffer.alloc(4) }));
+  await map.settled();
+  assert.equal(map.size, 2);
+});
+
+test("captureImageBytes skips a declared-oversize image without reading its body", async () => {
+  const page = fakeEventPage();
+  const map = captureImageBytes(page);
+  let read = false;
+  const r = fakeResp({ url: "https://x/huge.png" });
+  r.headers = () => ({ "content-type": "image/png", "content-length": String(CAPTURE_MAX_BYTES + 1) });
+  r.body = async () => { read = true; return Buffer.from("x"); };
+  page.emit(r);
+  await map.settled();
+  assert.equal(read, false);
+  assert.equal(map.size, 0);
 });
