@@ -27,6 +27,13 @@ type RunCardProps = {
   contentType?: RunContentType;
   /** Item counts; the list endpoint has none, so this is derived upstream. */
   progress?: RunProgress;
+  /**
+   * Last action failure for this run. Owned by the page, not the card: the
+   * card can remount when the refreshed list regroups it.
+   */
+  actionError?: string | null;
+  /** Reports an action failure (message) or clears it (null). */
+  onActionError?: (runId: number, message: string | null) => void;
   /** Injectable for tests; production uses the shared dashboard client. */
   client?: ApiClient;
   /** Injectable for tests; production opens a real WebSocket. */
@@ -37,6 +44,8 @@ export function RunCard({
   run,
   contentType,
   progress,
+  actionError,
+  onActionError,
   client = dashboardClient,
   socketFactory,
 }: RunCardProps) {
@@ -60,21 +69,17 @@ export function RunCard({
     }
   }, [isRunning, connected, polledState, run.state, queryClient]);
 
-  const { start, stop, resume } = useRunActions(client);
-  const actionMutations = [start, stop, resume];
-  const busy = actionMutations.some((mutation) => mutation.isPending);
-  const failed = actionMutations.find(
-    (mutation) => mutation.data?.ok === false || mutation.error,
-  );
-  const actionError =
-    failed?.data?.ok === false
-      ? failed.data.error
-      : (failed?.error?.message ?? null);
+  const { start, stop, resume } = useRunActions(client, {
+    onFailure: onActionError,
+  });
+  const busy = [start, stop, resume].some((mutation) => mutation.isPending);
 
   function fire(mutation: typeof start) {
-    actionMutations.forEach((m) => m.reset());
+    onActionError?.(run.id, null);
     mutation.mutate(run.id);
   }
+
+  const name = runName(run);
 
   const showMeter = progress !== undefined || isRunning;
   const counts = progress ? `${progress.done} of ${progress.total}` : null;
@@ -83,7 +88,7 @@ export function RunCard({
     <article className={styles.card}>
       <div className={styles.top}>
         <Text variant="body" as="h3" weight="semibold" className={styles.name}>
-          {runName(run)}
+          {name}
         </Text>
         {contentType ? <span className={styles.tag}>{contentType}</span> : null}
         <Badge tone={run.state} />
@@ -108,6 +113,7 @@ export function RunCard({
           <Button
             variant="primary"
             disabled={busy}
+            aria-label={`Start ${name}`}
             onClick={() => fire(start)}
           >
             <PlayIcon />
@@ -118,6 +124,7 @@ export function RunCard({
           <Button
             variant="primary"
             disabled={busy}
+            aria-label={`Resume ${name}`}
             onClick={() => fire(resume)}
           >
             <PlayIcon />
@@ -125,7 +132,11 @@ export function RunCard({
           </Button>
         ) : null}
         {isRunning ? (
-          <Button disabled={busy} onClick={() => fire(stop)}>
+          <Button
+            disabled={busy}
+            aria-label={`Stop ${name}`}
+            onClick={() => fire(stop)}
+          >
             <StopIcon />
             Stop
           </Button>

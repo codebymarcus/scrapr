@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -29,18 +30,33 @@ const idleSocket = (): RunSocket => ({
   close: () => {},
 });
 
-function renderCard(
-  props: Omit<Parameters<typeof RunCard>[0], "client" | "socketFactory"> & {
-    client?: ReturnType<typeof makeClient>["client"];
-  },
-) {
+type CardProps = Omit<
+  Parameters<typeof RunCard>[0],
+  "client" | "socketFactory" | "actionError" | "onActionError"
+> & { client?: ReturnType<typeof makeClient>["client"] };
+
+// Stands in for the page, which owns the action error.
+function Host({ client, ...props }: CardProps) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <RunCard
+      {...props}
+      client={client}
+      socketFactory={idleSocket}
+      actionError={error}
+      onActionError={(_id, message) => setError(message)}
+    />
+  );
+}
+
+function renderCard(props: CardProps) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const client = props.client ?? makeClient().client;
   return render(
     <QueryClientProvider client={queryClient}>
-      <RunCard {...props} client={client} socketFactory={idleSocket} />
+      <Host {...props} client={client} />
     </QueryClientProvider>,
   );
 }
@@ -106,7 +122,7 @@ describe("RunCard", () => {
     const { client, fetchFn } = makeClient(() => json({ run: {} }));
     renderCard({ run: makeRun({ id: 2, state: "stopped" }), client });
 
-    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await userEvent.click(screen.getByRole("button", { name: "Resume Run 2" }));
 
     await waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith(
@@ -121,7 +137,7 @@ describe("RunCard", () => {
     const { client, fetchFn } = makeClient(() => json({ run: {} }));
     renderCard({ run: makeRun({ id: 3, state: "queued" }), client });
 
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start Run 3" }));
 
     await waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith(
@@ -140,7 +156,7 @@ describe("RunCard", () => {
     expect(
       screen.queryByRole("button", { name: /pause/i }),
     ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop Run 4" }));
 
     await waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith(
@@ -148,6 +164,15 @@ describe("RunCard", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("labels each action with the run it acts on", () => {
+    renderCard({
+      run: makeRun({ id: 8, label: "Berserk vol 1", state: "stopped" }),
+    });
+    expect(
+      screen.getByRole("button", { name: "Resume Berserk vol 1" }),
+    ).toBeInTheDocument();
   });
 
   it("offers no actions on finished runs", () => {
@@ -161,19 +186,19 @@ describe("RunCard", () => {
     );
     renderCard({ run: makeRun({ id: 2, state: "stopped" }), client });
 
-    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await userEvent.click(screen.getByRole("button", { name: "Resume Run 2" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Cannot start a running run",
     );
-    expect(screen.getByRole("button", { name: "Resume" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Resume Run 2" })).toBeEnabled();
   });
 
   it("shows other failures inline too", async () => {
     const { client } = makeClient(() => json({ error: "Run not found" }, 404));
     renderCard({ run: makeRun({ id: 2, state: "stopped" }), client });
 
-    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await userEvent.click(screen.getByRole("button", { name: "Resume Run 2" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Run not found");
   });

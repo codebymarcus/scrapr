@@ -2,11 +2,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { runEventSchema } from "@/lib/schemas";
+import { deriveWsBase } from "@/lib/ws-base";
 import type { Run, RunEvent } from "@/lib/schemas";
 import type { CachedRunDetail } from "../types";
 import { runKeys } from "./runs-keys";
 
-const WS_BASE = import.meta.env.VITE_WS_BASE ?? "ws://localhost:5174";
+const WS_BASE = deriveWsBase({
+  VITE_WS_BASE: import.meta.env.VITE_WS_BASE,
+  VITE_API_BASE: import.meta.env.VITE_API_BASE,
+});
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 10_000;

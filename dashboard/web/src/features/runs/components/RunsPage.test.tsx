@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
 import { makeFakeClient, makeItem, makeRun } from "../test/fixtures";
 import { RunsPage } from "./RunsPage";
@@ -112,6 +114,43 @@ describe("RunsPage", () => {
     expect(
       within(strip).getByText("Failing hosts").nextSibling,
     ).toHaveTextContent("—");
+  });
+
+  it("keeps an action's 409 message after the refetch regroups the card", async () => {
+    // The run is stopped at first; the start attempt loses a race (409) and
+    // the refetched list shows it already running, so it changes group.
+    let serverState: "stopped" | "running" = "stopped";
+    const respond = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    const fetchFn: typeof fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      const current = makeRun({ id: 2, label: "Racy run", state: serverState });
+      if (path === "/api/runs/2/start" && init?.method === "POST") {
+        serverState = "running";
+        return respond({ error: "Cannot start a running run" }, 409);
+      }
+      if (path === "/api/runs/2") return respond({ run: current, items: [] });
+      if (path === "/api/runs") return respond({ runs: [current] });
+      return respond({ error: "not found" }, 404);
+    };
+    renderPage(createApiClient({ baseUrl: "http://test.local", fetchFn }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Resume Racy run" }),
+    );
+
+    const runningGroup = await screen.findByRole("region", {
+      name: "Running",
+    });
+    expect(
+      screen.queryByRole("region", { name: "Stopped — resumable" }),
+    ).not.toBeInTheDocument();
+    expect(await within(runningGroup).findByRole("alert")).toHaveTextContent(
+      "Cannot start a running run",
+    );
   });
 
   it("hides empty groups", async () => {

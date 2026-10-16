@@ -25,22 +25,43 @@ async function settle(action: () => Promise<void>): Promise<RunActionResult> {
   }
 }
 
-export function useRunActions(client: ApiClient = dashboardClient) {
+type UseRunActionsOptions = {
+  /**
+   * Called with the failure message (a 409 conflict or any other error).
+   * Lets the owner keep the message outside the card, which can remount when
+   * the refreshed list regroups it.
+   */
+  onFailure?: (runId: number, message: string) => void;
+};
+
+export function useRunActions(
+  client: ApiClient = dashboardClient,
+  { onFailure }: UseRunActionsOptions = {},
+) {
   const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: runKeys.all });
+  const refresh = (result: RunActionResult, id: number) => {
+    if (!result.ok) {
+      onFailure?.(id, result.error);
+    }
+    return queryClient.invalidateQueries({ queryKey: runKeys.all });
+  };
+  const fail = (error: Error, id: number) => onFailure?.(id, error.message);
 
   const start = useMutation({
     mutationFn: (id: number) => settle(() => startRun(id, client)),
     onSuccess: refresh,
+    onError: fail,
   });
   const stop = useMutation({
     mutationFn: (id: number) => settle(() => stopRun(id, client)),
     onSuccess: refresh,
+    onError: fail,
   });
   // The server resumes a stopped run through the same endpoint as a start.
   const resume = useMutation({
     mutationFn: (id: number) => settle(() => startRun(id, client)),
     onSuccess: refresh,
+    onError: fail,
   });
 
   return { start, stop, resume };

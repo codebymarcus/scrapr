@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { Button } from "@/components/atoms/Button";
 import { Text } from "@/components/atoms/Text";
 import { ErrorState } from "@/components/molecules/ErrorState";
@@ -25,6 +26,26 @@ export function RunsPage({
   socketFactory,
 }: RunsPageProps) {
   const runsQuery = useRuns(client);
+
+  // Action failures live here, keyed by run id, so a message survives the
+  // card remounting when a refetch moves it to another group.
+  const [actionErrors, setActionErrors] = useState<Record<number, string>>({});
+  const handleActionError = useCallback(
+    (runId: number, message: string | null) => {
+      setActionErrors((current) => {
+        if (message === null) {
+          if (!(runId in current)) {
+            return current;
+          }
+          const rest = { ...current };
+          delete rest[runId];
+          return rest;
+        }
+        return { ...current, [runId]: message };
+      });
+    },
+    [],
+  );
   const runs = runsQuery.data ?? [];
   const groups = groupRuns(runs);
 
@@ -97,6 +118,8 @@ export function RunsPage({
           key={run.id}
           run={run}
           progress={progress.get(run.id)}
+          actionError={actionErrors[run.id]}
+          onActionError={handleActionError}
           client={client}
           socketFactory={socketFactory}
         />

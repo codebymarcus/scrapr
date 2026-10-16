@@ -7,7 +7,10 @@ import { createApiClient } from "@/lib/http/api-client";
 import { runKeys } from "./runs-keys";
 import { useRunActions } from "./use-run-actions";
 
-function setup(respond: () => Response) {
+function setup(
+  respond: () => Response,
+  onFailure?: (id: number, message: string) => void,
+) {
   const fetchFn = vi.fn(async () => respond());
   const client = createApiClient({
     baseUrl: "http://test.local",
@@ -19,7 +22,7 @@ function setup(respond: () => Response) {
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client: queryClient }, children);
-  const hook = renderHook(() => useRunActions(client), { wrapper });
+  const hook = renderHook(() => useRunActions(client, { onFailure }), { wrapper });
   return { fetchFn, invalidate, ...hook };
 }
 
@@ -87,6 +90,17 @@ describe("useRunActions", () => {
     expect(result.current.start.isError).toBe(false);
     // State is probably stale, so refresh it.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.all });
+  });
+
+  it("reports a 409 message through onFailure", async () => {
+    const onFailure = vi.fn();
+    const { result } = setup(conflict("Run is not running"), onFailure);
+
+    await act(async () => {
+      await result.current.stop.mutateAsync(5);
+    });
+
+    expect(onFailure).toHaveBeenCalledWith(5, "Run is not running");
   });
 
   it("still throws for non-409 failures", async () => {
