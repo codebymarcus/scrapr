@@ -94,6 +94,18 @@ describe("ProjectsPage", () => {
     expect(within(news).getByText("Any host")).toBeInTheDocument();
   });
 
+  it("renders project names as h2 under the page h1", async () => {
+    setup();
+
+    const heading = await screen.findByRole("heading", {
+      name: "Manga reader",
+    });
+    expect(heading.tagName).toBe("H2");
+    expect(
+      screen.queryByRole("heading", { level: 3 }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no projects", async () => {
     setup({ list: () => json({ projects: [] }) });
 

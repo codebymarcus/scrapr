@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
@@ -20,6 +20,7 @@ function setup(respond: () => Response | Promise<Response>) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { queryClient };
 }
 
 const json = (body: unknown, status = 200) =>
@@ -51,5 +52,24 @@ describe("Sidebar engine indicator", () => {
     setup(() => json({ error: "down" }, 500));
 
     expect(await screen.findByText("Engine disconnected")).toBeInTheDocument();
+  });
+
+  it("degrades to disconnected when a later health poll fails after a success", async () => {
+    let healthy = true;
+    const { queryClient } = setup(() =>
+      healthy ? json({ ok: true }) : json({ error: "down" }, 500),
+    );
+
+    expect(await screen.findByText("Engine connected")).toBeInTheDocument();
+
+    healthy = false;
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["health"] });
+    });
+
+    expect(await screen.findByText("Engine disconnected")).toBeInTheDocument();
+    // React Query keeps the last good data on a refetch error; the indicator
+    // must not trust it.
+    expect(queryClient.getQueryData(["health"])).toEqual({ ok: true });
   });
 });

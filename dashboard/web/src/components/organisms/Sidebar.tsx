@@ -46,11 +46,12 @@ export function Sidebar({
   client = dashboardClient,
 }: SidebarProps) {
   const health = useHealth(client);
+  // A refetch error keeps the last successful `data`, so check isError first.
   const engine: EngineStatus = health.isPending
     ? "checking"
-    : health.data?.ok
-      ? "connected"
-      : "disconnected";
+    : health.isError || !health.data?.ok
+      ? "disconnected"
+      : "connected";
 
   return (
     <aside className={styles.sidebar}>

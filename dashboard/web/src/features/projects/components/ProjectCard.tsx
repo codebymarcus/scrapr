@@ -52,7 +52,7 @@ export function ProjectCard({
         <Text
           id={headingId}
           variant="body"
-          as="h3"
+          as="h2"
           weight="semibold"
           className={styles.name}
         >
