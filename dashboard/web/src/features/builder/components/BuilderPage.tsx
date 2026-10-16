@@ -1,10 +1,13 @@
 import { useId, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { Button } from "@/components/atoms/Button";
 import { Text } from "@/components/atoms/Text";
 import { TextInput } from "@/components/atoms/TextInput";
 import { ErrorState } from "@/components/molecules/ErrorState";
 import { Field } from "@/components/molecules/Field";
 import { PageLayout } from "@/components/templates/PageLayout";
+import { useCreateProject } from "@/features/projects";
+import { useCreateRun } from "@/features/runs";
 import { API_BASE } from "@/lib/api-base";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
@@ -26,6 +29,7 @@ import { normalizeTextFields } from "../text-fields";
 import type { DetectScope, ImageCandidate, RuleDraft } from "../types";
 import styles from "./Builder.module.scss";
 import { DetectFilter } from "./DetectFilter";
+import { BuiltInRecipeNotice } from "./BuiltInRecipeNotice";
 import { ImageCandidateGrid } from "./ImageCandidateGrid";
 import { ImageRuleForm } from "./ImageRuleForm";
 import { SaveProjectBar } from "./SaveProjectBar";
@@ -66,6 +70,11 @@ export function BuilderPage({
   const urlInputRef = useRef<HTMLDivElement>(null);
   const previewImage = usePreviewImage(client);
   const previewText = usePreviewText(client);
+  const navigate = useNavigate();
+  const createProject = useCreateProject(client);
+  const createRun = useCreateRun(client);
+  const [creatingBuiltIn, setCreatingBuiltIn] = useState(false);
+  const [builtInError, setBuiltInError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -97,6 +106,7 @@ export function BuilderPage({
       return;
     }
     setUrlError(null);
+    setBuiltInError(null);
     const previewName = name.trim() || PREVIEW_NAME;
 
     if (scope === "images") {
@@ -173,6 +183,35 @@ export function BuilderPage({
   const pending = previewImage.isPending || previewText.isPending;
   const activeMutation = detected === "text" ? previewText : previewImage;
   const activeResult = imageResult ?? textResult;
+  const builtInRecipe =
+    !pending && activeResult?.status === "ok"
+      ? (activeResult.builtInRecipe ?? null)
+      : null;
+
+  async function createBuiltInRun(profileName: string) {
+    setCreatingBuiltIn(true);
+    setBuiltInError(null);
+    try {
+      const project = await createProject.mutateAsync({
+        name: trimmedName || `${profileName} (built-in)`,
+        recipe: {
+          name: profileName,
+          contentType: "image",
+          builtIn: true,
+          builtInProfile: profileName,
+        },
+      });
+      await createRun.mutateAsync({ projectId: project.id });
+      navigate("/");
+    } catch (error) {
+      setBuiltInError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't create the run with the built-in recipe.",
+      );
+      setCreatingBuiltIn(false);
+    }
+  }
 
   function renderResults() {
     if (detected === null) {
@@ -290,6 +329,15 @@ export function BuilderPage({
             </Button>
           </div>
         </section>
+
+        {builtInRecipe ? (
+          <BuiltInRecipeNotice
+            profileName={builtInRecipe}
+            onCreateRun={() => void createBuiltInRun(builtInRecipe)}
+            creating={creatingBuiltIn}
+            error={builtInError}
+          />
+        ) : null}
 
         {renderResults()}
 
