@@ -6,10 +6,10 @@ import { TextArea } from "@/components/atoms/TextArea";
 import { TextInput } from "@/components/atoms/TextInput";
 import { Field } from "@/components/molecules/Field";
 import { Modal } from "@/components/molecules/Modal";
+import { useProjects } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Run } from "@/lib/schemas";
-import { useProjectsLite } from "../hooks/use-projects-lite";
 import { useCreateRun, useEnqueue } from "../hooks/use-run-mutations";
 import { describeInvalidLines, parseUrlList } from "../url-list";
 import { projectOptions } from "./project-options";
@@ -17,6 +17,8 @@ import styles from "./RunDialogs.module.scss";
 
 type NewRunDialogProps = {
   onClose: () => void;
+  /** Preselects a project, e.g. when started from the projects list. */
+  initialProjectId?: number;
   /** Injectable for tests; production uses the shared dashboard client. */
   client?: ApiClient;
 };
@@ -27,14 +29,17 @@ function messageOf(error: unknown): string {
 
 export function NewRunDialog({
   onClose,
+  initialProjectId,
   client = dashboardClient,
 }: NewRunDialogProps) {
   const ids = useId();
-  const projectsQuery = useProjectsLite(client);
+  const projectsQuery = useProjects(client);
   const createRun = useCreateRun(client);
   const enqueue = useEnqueue(client);
 
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(
+    initialProjectId === undefined ? "" : String(initialProjectId),
+  );
   const [label, setLabel] = useState("");
   const [urlText, setUrlText] = useState("");
   const [error, setError] = useState<string | null>(null);

@@ -3,7 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
-import { makeProject, makeRun } from "../test/fixtures";
+import { makeProject } from "@/test/fixtures";
+import { makeRun } from "../test/fixtures";
 import { ImportListDialog } from "./ImportListDialog";
 
 type Call = { path: string; method: string; body?: unknown };

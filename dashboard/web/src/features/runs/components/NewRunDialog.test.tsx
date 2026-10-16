@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import { runKeys } from "../hooks/runs-keys";
-import { makeProject, makeRun } from "../test/fixtures";
+import { makeProject } from "@/test/fixtures";
+import { makeRun } from "../test/fixtures";
 import { NewRunDialog } from "./NewRunDialog";
 
 type Call = { path: string; method: string; body?: unknown };

@@ -1,8 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/atoms/Button";
 import { Text } from "@/components/atoms/Text";
 import { ErrorState } from "@/components/molecules/ErrorState";
 import { PageLayout } from "@/components/templates/PageLayout";
+import { useProjects } from "@/features/projects";
+import type { NewRunFromProjectState } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { SocketFactory } from "../hooks/use-run-events";
@@ -28,6 +31,20 @@ export function RunsPage({
   socketFactory,
 }: RunsPageProps) {
   const runsQuery = useRuns(client);
+
+  // A run's content type lives on its project's recipe. The projects query is
+  // best-effort: if it fails or the project is gone, the card shows no tag.
+  const projectsQuery = useProjects(client);
+  const contentTypes = useMemo(
+    () =>
+      new Map(
+        (projectsQuery.data ?? []).map((project) => [
+          project.id,
+          project.recipe.contentType,
+        ]),
+      ),
+    [projectsQuery.data],
+  );
 
   // Action failures live here, keyed by run id, so a message survives the
   // card remounting when a refetch moves it to another group.
@@ -57,8 +74,25 @@ export function RunsPage({
     client,
   );
 
-  const [dialog, setDialog] = useState<"new" | "import" | null>(null);
-  const closeDialog = useCallback(() => setDialog(null), []);
+  // "New run from this" on the projects list lands here with the project id.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [preselectedProjectId, setPreselectedProjectId] = useState(
+    () => (location.state as NewRunFromProjectState | null)?.newRunProjectId,
+  );
+  const [dialog, setDialog] = useState<"new" | "import" | null>(
+    preselectedProjectId === undefined ? null : "new",
+  );
+  const closeDialog = useCallback(() => {
+    setDialog(null);
+    setPreselectedProjectId(undefined);
+  }, []);
+  useEffect(() => {
+    // Consume the state so a reload doesn't reopen the dialog.
+    if (preselectedProjectId !== undefined) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [preselectedProjectId, navigate, location.pathname]);
 
   const headerActions = (
     <>
@@ -121,6 +155,7 @@ export function RunsPage({
         <RunCard
           key={run.id}
           run={run}
+          contentType={contentTypes.get(run.project_id)}
           progress={progress.get(run.id)}
           actionError={actionErrors[run.id]}
           onActionError={handleActionError}
@@ -156,7 +191,11 @@ export function RunsPage({
     >
       {renderBody()}
       {dialog === "new" ? (
-        <NewRunDialog client={client} onClose={closeDialog} />
+        <NewRunDialog
+          client={client}
+          initialProjectId={preselectedProjectId}
+          onClose={closeDialog}
+        />
       ) : null}
       {dialog === "import" ? (
         <ImportListDialog client={client} onClose={closeDialog} />

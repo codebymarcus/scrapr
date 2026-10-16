@@ -1,15 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
-import {
-  makeFakeClient,
-  makeItem,
-  makeProject,
-  makeRun,
-} from "../test/fixtures";
+import { makeProject } from "@/test/fixtures";
+import { makeFakeClient, makeItem, makeRun } from "../test/fixtures";
 import { RunsPage } from "./RunsPage";
 
 // Never connects, so no real WebSocket is opened from jsdom.
@@ -21,13 +18,18 @@ const idleSocket = (): RunSocket => ({
   close: () => {},
 });
 
-function renderPage(client: ReturnType<typeof makeFakeClient>) {
+function renderPage(
+  client: ReturnType<typeof makeFakeClient>,
+  entry: string | { pathname: string; state: unknown } = "/",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RunsPage client={client} socketFactory={idleSocket} />
+      <MemoryRouter initialEntries={[entry]}>
+        <RunsPage client={client} socketFactory={idleSocket} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -221,5 +223,56 @@ describe("RunsPage", () => {
     expect(
       screen.getByRole("dialog", { name: "Import list" }),
     ).toBeInTheDocument();
+  });
+
+  it("tags each run card with its project's content type", async () => {
+    renderPage(
+      makeFakeClient({
+        "/api/runs": {
+          runs: [
+            makeRun({ id: 1, label: "Pictures", project_id: 1, state: "done" }),
+            makeRun({ id: 2, label: "Articles", project_id: 2, state: "done" }),
+            makeRun({ id: 3, label: "Orphan", project_id: 99, state: "done" }),
+          ],
+        },
+        "/api/projects": {
+          projects: [
+            makeProject({ id: 1, recipe: { name: "a", contentType: "image" } }),
+            makeProject({ id: 2, recipe: { name: "b", contentType: "text" } }),
+          ],
+        },
+      }),
+    );
+
+    const pictures = await screen.findByRole("heading", { name: "Pictures" });
+    expect(
+      await within(pictures.closest("article")!).findByText("image"),
+    ).toBeInTheDocument();
+    const articles = screen.getByRole("heading", { name: "Articles" });
+    expect(
+      within(articles.closest("article")!).getByText("text"),
+    ).toBeInTheDocument();
+    const orphan = screen.getByRole("heading", { name: "Orphan" });
+    expect(
+      within(orphan.closest("article")!).queryByText(/^(image|text)$/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the new-run dialog preselecting the project from router state", async () => {
+    renderPage(
+      makeFakeClient({
+        "/api/runs": { runs: [] },
+        "/api/projects": {
+          projects: [
+            makeProject({ id: 1, name: "Alpha" }),
+            makeProject({ id: 2, name: "Beta" }),
+          ],
+        },
+      }),
+      { pathname: "/", state: { newRunProjectId: 2 } },
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "New run" });
+    expect(await within(dialog).findByLabelText("Project")).toHaveValue("2");
   });
 });

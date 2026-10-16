@@ -16,11 +16,15 @@ export type ApiClient = {
     path: string,
     options: { body?: unknown; schema?: undefined; signal?: AbortSignal },
   ): Promise<void>;
+  put<T>(
+    path: string,
+    options: { body?: unknown; schema: ZodType<T>; signal?: AbortSignal },
+  ): Promise<T>;
   del(path: string, options?: { signal?: AbortSignal }): Promise<void>;
 };
 
 type RequestOptions = {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   schema?: ZodType<unknown>;
   signal?: AbortSignal;
@@ -150,6 +154,13 @@ export function createApiClient(config: {
     return request(path, { method: "POST", ...options });
   }
 
+  async function put<T>(
+    path: string,
+    options: { body?: unknown; schema: ZodType<T>; signal?: AbortSignal },
+  ): Promise<T> {
+    return (await request(path, { method: "PUT", ...options })) as T;
+  }
+
   async function del(
     path: string,
     options?: { signal?: AbortSignal },
@@ -157,5 +168,5 @@ export function createApiClient(config: {
     await request(path, { method: "DELETE", signal: options?.signal });
   }
 
-  return { get, post, del };
+  return { get, post, put, del };
 }

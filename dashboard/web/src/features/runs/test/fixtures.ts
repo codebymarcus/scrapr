@@ -1,6 +1,6 @@
 import { createApiClient } from "@/lib/http/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
-import type { Project, Run, RunItem } from "@/lib/schemas";
+import type { Run, RunItem } from "@/lib/schemas";
 
 export function makeRun(overrides: Partial<Run> & { id: number }): Run {
   return {
@@ -48,16 +48,4 @@ export function makeFakeClient(routes: Routes): ApiClient {
     });
   };
   return createApiClient({ baseUrl: "http://test.local", fetchFn });
-}
-
-export function makeProject(
-  overrides: Partial<Project> & { id: number },
-): Project {
-  return {
-    name: `Project ${overrides.id}`,
-    recipe: { name: `recipe-${overrides.id}`, contentType: "image" },
-    created_at: "2026-10-16T08:00:00.000Z",
-    updated_at: "2026-10-16T08:00:00.000Z",
-    ...overrides,
-  };
 }

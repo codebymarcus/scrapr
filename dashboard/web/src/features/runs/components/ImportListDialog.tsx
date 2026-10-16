@@ -5,10 +5,10 @@ import { Text } from "@/components/atoms/Text";
 import { TextInput } from "@/components/atoms/TextInput";
 import { Field } from "@/components/molecules/Field";
 import { Modal } from "@/components/molecules/Modal";
+import { useProjects } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Run } from "@/lib/schemas";
-import { useProjectsLite } from "../hooks/use-projects-lite";
 import {
   useCreateRun,
   useEnqueue,
@@ -43,7 +43,7 @@ export function ImportListDialog({
 }: ImportListDialogProps) {
   const ids = useId();
   const runsQuery = useRuns(client);
-  const projectsQuery = useProjectsLite(client);
+  const projectsQuery = useProjects(client);
   const importList = useImport(client);
   const createRun = useCreateRun(client);
   const enqueue = useEnqueue(client);

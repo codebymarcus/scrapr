@@ -180,6 +180,18 @@ describe("createApiClient", () => {
     });
   });
 
+  it("put sends a JSON body with PUT and validates the response", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ id: 1, name: "renamed" }));
+    const data = await makeClient(fetchFn as unknown as typeof fetch).put(
+      "/things/1",
+      { body: { name: "renamed" }, schema: itemSchema },
+    );
+    expect(data).toEqual({ id: 1, name: "renamed" });
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({ name: "renamed" });
+  });
+
   it("del issues a DELETE and resolves on success", async () => {
     const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
     await makeClient(fetchFn as unknown as typeof fetch).del("/things/1", {});
