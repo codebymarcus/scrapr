@@ -190,9 +190,9 @@ describe("BuilderPage", () => {
 
     await userEvent.click(screen.getByRole("checkbox", { name: "Keep image 3" }));
 
-    expect(screen.getByRole("note")).toHaveTextContent(
-      "No size threshold separates",
-    );
+    expect(
+      screen.getByText(/No size threshold separates/),
+    ).toBeInTheDocument();
   });
 
   it("warns about preview-only rules the run will not apply", async () => {
@@ -288,6 +288,9 @@ describe("BuilderPage", () => {
       const list = await screen.findByRole("list", { name: "Detected text fields" });
       expect(within(list).getByText("A headline")).toBeInTheDocument();
       expect(within(list).getByText("# Body text")).toBeInTheDocument();
+      expect(screen.getByRole("note")).toHaveTextContent(
+        "Article mode captures the whole article. Field selection is recorded for reference but does not change what the run extracts yet.",
+      );
       expect(calls.find((c) => c.path === "/api/preview/text")?.body).toMatchObject({
         url: "https://news.test/story",
         recipe: { contentType: "text", text: { mode: "article" } },

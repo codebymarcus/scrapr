@@ -50,5 +50,8 @@ describe("ImageRuleForm", () => {
       expect(screen.getByLabelText(label)).toBeDisabled();
     }
     expect(screen.getByLabelText("Min width (px)")).toBeEnabled();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Selector and position rules apply to the preview only — they are not saved or applied when the run executes.",
+    );
   });
 });

@@ -100,6 +100,10 @@ export function ImageRuleForm({ draft, onChange }: ImageRuleFormProps) {
           />
         </Field>
       </div>
+      <Text variant="small" tone="secondary" role="note">
+        Selector and position rules apply to the preview only — they are not
+        saved or applied when the run executes.
+      </Text>
     </section>
   );
 }
