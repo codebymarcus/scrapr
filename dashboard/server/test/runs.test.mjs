@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,15 +10,49 @@ import { migrate } from "../src/db/migrations.mjs";
 import { createStore } from "../src/db/store.mjs";
 
 const fixture = fileURLToPath(new URL("./fixtures/links.csv", import.meta.url));
+const fixtureCsv = readFileSync(fixture, "utf8");
+
+// Build a multipart/form-data body for app.inject. `fields` maps a name to a
+// string, or to { filename, content, type? } for the uploaded file.
+function multipart(fields) {
+  const boundary = `----scraprtest${Math.random().toString(16).slice(2)}`;
+  const parts = [];
+  for (const [name, value] of Object.entries(fields)) {
+    if (value && typeof value === "object" && "filename" in value) {
+      parts.push(
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${value.filename}"\r\n` +
+            `Content-Type: ${value.type ?? "application/octet-stream"}\r\n\r\n`,
+        ),
+        Buffer.isBuffer(value.content) ? value.content : Buffer.from(value.content),
+        Buffer.from("\r\n"),
+      );
+    } else {
+      parts.push(
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+        ),
+      );
+    }
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+  return {
+    payload: Buffer.concat(parts),
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+  };
+}
+
+const csvUpload = (extra = {}) =>
+  multipart({ file: { filename: "links.csv", content: fixtureCsv, type: "text/csv" }, ...extra });
 const imageRecipe = { name: "Img", contentType: "image" };
 const textRecipe = { name: "Txt", contentType: "text", text: { mode: "pattern", patterns: ["x"] } };
 
-function setup() {
+function setup(extraDeps = {}) {
   const db = openDb();
   migrate(db);
   const store = createStore(db);
   const outRoot = mkdtempSync(join(tmpdir(), "runs-test-"));
-  const app = buildApp({ store, runOutDir: (run) => join(outRoot, String(run.id)) });
+  const app = buildApp({ store, runOutDir: (run) => join(outRoot, String(run.id)), ...extraDeps });
   const project = store.createProject({ name: "P", recipe: imageRecipe });
   const textProject = store.createProject({ name: "T", recipe: textRecipe });
   return { db, store, app, project, textProject, outRoot };
@@ -124,22 +158,22 @@ test("enqueue into a running run is 409; done run is 409; missing run is 404", a
   await teardown(ctx);
 });
 
-test("import parses a sheet by path and returns urls", async () => {
+test("import parses an uploaded sheet and returns urls", async () => {
   const ctx = setup();
-  const res = await ctx.app.inject({ method: "POST", url: "/api/runs/import", payload: { path: fixture } });
+  const res = await ctx.app.inject({ method: "POST", url: "/api/runs/import", ...csvUpload() });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json().urls, ["https://example.com/a", "https://example.com/b"]);
   await teardown(ctx);
 });
 
-test("import with runId enqueues the urls", async () => {
+test("import with runId enqueues the uploaded urls", async () => {
   const ctx = setup();
   const { app, project } = ctx;
   const { body } = await createRun(app, project.id);
   const res = await app.inject({
     method: "POST",
     url: "/api/runs/import",
-    payload: { path: fixture, runId: body.run.id },
+    ...csvUpload({ runId: String(body.run.id) }),
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().added, 2);
@@ -149,24 +183,43 @@ test("import with runId enqueues the urls", async () => {
   const conflict = await app.inject({
     method: "POST",
     url: "/api/runs/import",
-    payload: { path: fixture, runId: body.run.id },
+    ...csvUpload({ runId: String(body.run.id) }),
   });
   assert.equal(conflict.statusCode, 409);
   await teardown(ctx);
 });
 
-test("import validates path and file", async () => {
+test("import validates the upload (missing file, bad type, size cap)", async () => {
   const ctx = setup();
   const { app } = ctx;
-  assert.equal((await app.inject({ method: "POST", url: "/api/runs/import", payload: {} })).statusCode, 400);
+  // No file part.
   assert.equal(
-    (await app.inject({ method: "POST", url: "/api/runs/import", payload: { path: "/nope/x.csv" } })).statusCode,
+    (await app.inject({ method: "POST", url: "/api/runs/import", ...multipart({ runId: "1" }) })).statusCode,
     400,
   );
+  // Unsupported extension.
   assert.equal(
-    (await app.inject({ method: "POST", url: "/api/runs/import", payload: { path: "/etc/hosts" } })).statusCode,
+    (
+      await app.inject({
+        method: "POST",
+        url: "/api/runs/import",
+        ...multipart({ file: { filename: "evil.png", content: "x", type: "image/png" } }),
+      })
+    ).statusCode,
     400,
   );
+  await teardown(ctx);
+});
+
+test("import rejects an oversized upload with 413", async () => {
+  const ctx = setup({ uploadMaxBytes: 32 });
+  const big = `url\n${"https://example.com/".repeat(20)}\n`;
+  const res = await ctx.app.inject({
+    method: "POST",
+    url: "/api/runs/import",
+    ...multipart({ file: { filename: "big.csv", content: big, type: "text/csv" } }),
+  });
+  assert.equal(res.statusCode, 413);
   await teardown(ctx);
 });
 

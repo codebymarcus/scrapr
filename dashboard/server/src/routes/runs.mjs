@@ -1,15 +1,11 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { resolveRecordBase } from "../../../../src/naming.mjs";
 import { DATA_DIR } from "../config.mjs";
 import { importSheet } from "../import-sheet.mjs";
 import { createRunSchema, enqueueSchema, parseOr400 } from "../schemas.mjs";
-import { z } from "zod";
-
-const importSchema = z.object({
-  path: z.string().min(1),
-  runId: z.number().int().positive().optional(),
-});
 
 const SHEET_EXT = /\.(csv|tsv|txt|xlsx|xls)$/i;
 
@@ -93,24 +89,47 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
 
   app.get("/api/runs", async () => ({ runs: store.listRuns() }));
 
-  // v1 import contract: JSON body { path, runId? } where `path` is a file the
-  // server can read (csv/tsv/txt/xlsx/xls). Multipart upload can come later.
-  // Without runId the parsed URLs are returned ({ urls }); with runId they are
-  // enqueued into that run ({ added }) under the same rules as /items.
+  // Import contract: multipart/form-data upload with a `file` part (the sheet:
+  // csv/tsv/txt/xlsx/xls) and an optional `runId` field. Without runId the
+  // parsed URLs are returned ({ urls }); with runId they are enqueued into that
+  // run ({ added }) under the same rules as /items. The upload is written to a
+  // temp file (keeping its extension so the engine parses it correctly), parsed,
+  // and deleted — the server never reads an arbitrary caller-supplied path.
   app.post("/api/runs/import", async (request, reply) => {
-    const parsed = parseOr400(importSchema, request.body);
-    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
-    const { path, runId } = parsed.data;
-    if (!SHEET_EXT.test(path)) {
+    let data;
+    try {
+      data = await request.file();
+    } catch (err) {
+      return reply.code(400).send({ error: `Invalid upload: ${err.message}` });
+    }
+    if (!data) return reply.code(400).send({ error: "Upload a spreadsheet file (field name 'file')" });
+
+    const ext = extname(data.filename || "").toLowerCase();
+    if (!SHEET_EXT.test(data.filename || "")) {
+      // Drain the stream so the request completes cleanly before responding.
+      await data.toBuffer().catch(() => {});
       return reply.code(400).send({ error: "Unsupported file type (use csv, tsv, txt, xlsx or xls)" });
     }
-    let info;
-    try {
-      info = await stat(path);
-    } catch {
-      return reply.code(400).send({ error: "File not found or unreadable" });
+
+    const rawRunId = data.fields?.runId?.value;
+    let runId;
+    if (rawRunId !== undefined && rawRunId !== "") {
+      runId = Number(rawRunId);
+      if (!Number.isInteger(runId) || runId <= 0) {
+        await data.toBuffer().catch(() => {});
+        return reply.code(400).send({ error: "runId must be a positive integer" });
+      }
     }
-    if (!info.isFile()) return reply.code(400).send({ error: "Path is not a file" });
+
+    let buffer;
+    try {
+      buffer = await data.toBuffer();
+    } catch (err) {
+      return reply.code(400).send({ error: `Could not read upload: ${err.message}` });
+    }
+    if (data.file.truncated) {
+      return reply.code(413).send({ error: "Uploaded file is too large" });
+    }
 
     let run = null;
     if (runId !== undefined) {
@@ -123,11 +142,15 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
       }
     }
 
+    const tempPath = join(tmpdir(), `scrapr-import-${randomUUID()}${ext}`);
     let urls;
     try {
-      urls = await importSheet(path);
+      await writeFile(tempPath, buffer);
+      urls = await importSheet(tempPath);
     } catch (err) {
       return reply.code(400).send({ error: `Could not parse sheet: ${err.message}` });
+    } finally {
+      await unlink(tempPath).catch(() => {});
     }
     if (!run) return { urls };
     return enqueue(run, urls, reply);

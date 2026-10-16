@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import fastifyMultipart from "@fastify/multipart";
 import fastifyWebsocket from "@fastify/websocket";
 import { createHub } from "./hub.mjs";
 import { previewRoutes } from "./routes/preview.mjs";
@@ -18,6 +19,13 @@ export function buildApp(deps = {}) {
   const hub = deps.hub ?? createHub();
   app.decorate("hub", hub);
   app.register(fastifyWebsocket);
+  // Spreadsheet uploads for run import (one file, size-capped).
+  app.register(fastifyMultipart, {
+    // On limit, truncate the stream (so toBuffer resolves and file.truncated is
+    // true → the route returns 413) rather than throwing a 500.
+    throwFileSizeLimit: false,
+    limits: { files: 1, fileSize: deps.uploadMaxBytes ?? 5_000_000 },
+  });
   app.register(wsRoutes, { hub });
   app.register(systemRoutes, { driveStatus: deps.driveStatus });
   app.register(previewRoutes, {

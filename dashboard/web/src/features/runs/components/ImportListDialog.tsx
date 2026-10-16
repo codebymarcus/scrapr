@@ -48,7 +48,7 @@ export function ImportListDialog({
   const createRun = useCreateRun(client);
   const enqueue = useEnqueue(client);
 
-  const [path, setPath] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [target, setTarget] = useState(NEW_RUN);
   const [projectId, setProjectId] = useState("");
   const [label, setLabel] = useState("");
@@ -72,10 +72,10 @@ export function ImportListDialog({
     })),
   ];
 
-  async function importIntoExisting(trimmedPath: string) {
+  async function importIntoExisting(sheet: File) {
     const runId = Number(target);
     try {
-      const result = await importList.mutateAsync({ path: trimmedPath, runId });
+      const result = await importList.mutateAsync({ file: sheet, runId });
       if (!result.ok) {
         setError(result.error);
       } else if ("added" in result) {
@@ -86,11 +86,11 @@ export function ImportListDialog({
     }
   }
 
-  async function importIntoNew(trimmedPath: string) {
+  async function importIntoNew(sheet: File) {
     let urls = sheetUrls;
     if (!urls) {
       try {
-        const result = await importList.mutateAsync({ path: trimmedPath });
+        const result = await importList.mutateAsync({ file: sheet });
         if (!result.ok) {
           setError(result.error);
           return;
@@ -143,16 +143,15 @@ export function ImportListDialog({
 
   async function submit() {
     setError(null);
-    const trimmedPath = path.trim();
-    if (trimmedPath === "") {
-      setError("Enter the path to a sheet.");
+    if (!file) {
+      setError("Choose a spreadsheet file to upload.");
       return;
     }
     if (isNew && !createdRun && projectId === "") {
       setError("Choose a project for the new run.");
       return;
     }
-    await (isNew ? importIntoNew(trimmedPath) : importIntoExisting(trimmedPath));
+    await (isNew ? importIntoNew(file) : importIntoExisting(file));
   }
 
   const locked = createdRun !== null;
@@ -187,23 +186,23 @@ export function ImportListDialog({
         </Text>
       ) : (
         <>
-          <Field htmlFor={`${ids}-path`} label="Sheet path">
-            <TextInput
-              id={`${ids}-path`}
-              value={path}
-              onChange={(value) => {
-                setPath(value);
+          <Field htmlFor={`${ids}-file`} label="Spreadsheet file">
+            <input
+              id={`${ids}-file`}
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx,.xls"
+              className={styles.fileInput}
+              onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null);
                 // A different sheet invalidates the URLs read from the last one.
                 if (!createdRun) {
                   setSheetUrls(null);
                 }
               }}
-              placeholder="/path/to/links.csv"
             />
           </Field>
           <Text variant="small" tone="secondary" className={styles.hint}>
-            A csv, tsv, txt, xlsx or xls file on the machine running the
-            dashboard server.
+            Upload a csv, tsv, txt, xlsx or xls file with a column of URLs.
           </Text>
           <Field htmlFor={`${ids}-target`} label="Add to">
             <Select

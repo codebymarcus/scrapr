@@ -151,31 +151,41 @@ describe("useEnqueue", () => {
   });
 });
 
+const makeSheet = () =>
+  new File(["url\nhttps://a.test/1\n"], "links.csv", { type: "text/csv" });
+
+function lastForm(fetchFn: ReturnType<typeof setup>["fetchFn"]): FormData {
+  const [, init] = fetchFn.mock.calls.at(-1) as unknown as [string, RequestInit];
+  return init.body as FormData;
+}
+
 describe("useImport", () => {
-  it("posts the path and run id and reports the added count", async () => {
+  it("uploads the file and run id and reports the added count", async () => {
     const { fetchFn, invalidate, client, wrapper } = setup(() =>
       json({ added: 12 }),
     );
     const { result } = renderHook(() => useImport(client), { wrapper });
 
+    const file = makeSheet();
     let outcome: unknown;
     await act(async () => {
-      outcome = await result.current.mutateAsync({
-        path: "/data/links.csv",
-        runId: 3,
-      });
+      outcome = await result.current.mutateAsync({ file, runId: 3 });
     });
 
-    expect(lastCall(fetchFn)).toEqual({
-      url: "http://test.local/api/runs/import",
-      method: "POST",
-      body: { path: "/data/links.csv", runId: 3 },
-    });
+    const [url, init] = fetchFn.mock.calls.at(-1) as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("http://test.local/api/runs/import");
+    expect(init.method).toBe("POST");
+    const form = init.body as FormData;
+    expect((form.get("file") as File).name).toBe("links.csv");
+    expect(form.get("runId")).toBe("3");
     expect(outcome).toEqual({ ok: true, added: 12 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.all });
   });
 
-  it("returns the parsed urls when no run is given", async () => {
+  it("returns the parsed urls when no run is given (no runId field)", async () => {
     const { fetchFn, client, wrapper } = setup(() =>
       json({ urls: ["https://a.test/1"] }),
     );
@@ -183,10 +193,12 @@ describe("useImport", () => {
 
     let outcome: unknown;
     await act(async () => {
-      outcome = await result.current.mutateAsync({ path: "/data/links.csv" });
+      outcome = await result.current.mutateAsync({ file: makeSheet() });
     });
 
-    expect(lastCall(fetchFn).body).toEqual({ path: "/data/links.csv" });
+    const form = lastForm(fetchFn);
+    expect((form.get("file") as File).name).toBe("links.csv");
+    expect(form.get("runId")).toBeNull();
     expect(outcome).toEqual({ ok: true, urls: ["https://a.test/1"] });
   });
 
@@ -198,7 +210,7 @@ describe("useImport", () => {
 
     let outcome: unknown;
     await act(async () => {
-      outcome = await result.current.mutateAsync({ path: "/x.csv", runId: 3 });
+      outcome = await result.current.mutateAsync({ file: makeSheet(), runId: 3 });
     });
 
     expect(outcome).toEqual({
@@ -209,16 +221,16 @@ describe("useImport", () => {
 
   it("throws for a 400 so the dialog can show the server message", async () => {
     const { client, wrapper } = setup(() =>
-      json({ error: "File not found or unreadable" }, 400),
+      json({ error: "Unsupported file type" }, 400),
     );
     const { result } = renderHook(() => useImport(client), { wrapper });
 
     await act(async () => {
       await expect(
-        result.current.mutateAsync({ path: "/x.csv" }),
+        result.current.mutateAsync({ file: makeSheet() }),
       ).rejects.toMatchObject({
         status: 400,
-        message: "File not found or unreadable",
+        message: "Unsupported file type",
       });
     });
   });

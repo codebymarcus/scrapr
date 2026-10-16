@@ -74,7 +74,7 @@ export function useImport(client: ApiClient = dashboardClient) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: {
-      path: string;
+      file: File;
       runId?: number;
     }): Promise<ImportResult> =>
       settleConflict(() => importList(input, client)),

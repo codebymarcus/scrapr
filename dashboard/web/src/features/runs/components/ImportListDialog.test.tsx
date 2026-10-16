@@ -21,16 +21,30 @@ const runs = [
   makeRun({ id: 3, label: "Paused run", state: "stopped" }),
 ];
 
+const sheetFile = () =>
+  new File(["url\nhttps://a.test/1\n"], "links.csv", { type: "text/csv" });
+
+// A multipart import body is recorded as { file: <filename>, runId? }; JSON
+// bodies (run create, enqueue) are parsed as before.
+function readBody(init: RequestInit | undefined): unknown {
+  if (!init?.body) return undefined;
+  if (init.body instanceof FormData) {
+    const file = init.body.get("file");
+    const runId = init.body.get("runId");
+    return {
+      file: file instanceof File ? file.name : null,
+      ...(runId === null ? {} : { runId }),
+    };
+  }
+  return JSON.parse(String(init.body)) as unknown;
+}
+
 function setup(handlers: Record<string, (call: Call) => Response> = {}) {
   const calls: Call[] = [];
   const fetchFn: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const method = init?.method ?? "GET";
-    const call: Call = {
-      path,
-      method,
-      body: init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined,
-    };
+    const call: Call = { path, method, body: readBody(init) };
     calls.push(call);
     const handler = handlers[`${method} ${path}`];
     if (handler) return handler(call);
@@ -55,7 +69,7 @@ function setup(handlers: Record<string, (call: Call) => Response> = {}) {
 }
 
 describe("ImportListDialog", () => {
-  it("imports into an existing queued run and reports the added count", async () => {
+  it("uploads into an existing queued run and reports the added count", async () => {
     const { writes } = setup({
       "POST /api/runs/import": () => json({ added: 12 }),
     });
@@ -65,7 +79,10 @@ describe("ImportListDialog", () => {
     expect(
       screen.queryByRole("option", { name: /Busy run/ }),
     ).not.toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Sheet path"), "/data/links.csv");
+    await userEvent.upload(
+      screen.getByLabelText("Spreadsheet file"),
+      sheetFile(),
+    );
     await userEvent.selectOptions(
       screen.getByLabelText("Add to"),
       screen.getByRole("option", { name: /Paused run/ }),
@@ -79,7 +96,7 @@ describe("ImportListDialog", () => {
       {
         path: "/api/runs/import",
         method: "POST",
-        body: { path: "/data/links.csv", runId: 3 },
+        body: { file: "links.csv", runId: "3" },
       },
     ]);
   });
@@ -93,7 +110,10 @@ describe("ImportListDialog", () => {
       "POST /api/runs/8/items": () => json({ added: 2 }),
     });
 
-    await userEvent.type(screen.getByLabelText("Sheet path"), "/data/links.csv");
+    await userEvent.upload(
+      screen.getByLabelText("Spreadsheet file"),
+      sheetFile(),
+    );
     await screen.findByRole("option", { name: "Alpha" });
     await userEvent.selectOptions(screen.getByLabelText("Project"), "Alpha");
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
@@ -102,7 +122,7 @@ describe("ImportListDialog", () => {
       "Added 2 URLs to run #8.",
     );
     expect(writes().map((call) => [call.path, call.body])).toEqual([
-      ["/api/runs/import", { path: "/data/links.csv" }],
+      ["/api/runs/import", { file: "links.csv" }],
       ["/api/runs", { projectId: 5 }],
       ["/api/runs/8/items", { urls: ["https://a.test/1", "https://a.test/2"] }],
     ]);
@@ -111,16 +131,19 @@ describe("ImportListDialog", () => {
   it("shows the server error and creates no run when the sheet is bad", async () => {
     const { writes } = setup({
       "POST /api/runs/import": () =>
-        json({ error: "File not found or unreadable" }, 400),
+        json({ error: "Unsupported file type" }, 400),
     });
 
-    await userEvent.type(screen.getByLabelText("Sheet path"), "/nope.csv");
+    await userEvent.upload(
+      screen.getByLabelText("Spreadsheet file"),
+      sheetFile(),
+    );
     await screen.findByRole("option", { name: "Alpha" });
     await userEvent.selectOptions(screen.getByLabelText("Project"), "Alpha");
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "File not found or unreadable",
+      "Unsupported file type",
     );
     expect(writes().map((call) => call.path)).toEqual(["/api/runs/import"]);
   });
@@ -132,7 +155,10 @@ describe("ImportListDialog", () => {
     });
 
     await screen.findByRole("option", { name: /Open run/ });
-    await userEvent.type(screen.getByLabelText("Sheet path"), "/data/links.csv");
+    await userEvent.upload(
+      screen.getByLabelText("Spreadsheet file"),
+      sheetFile(),
+    );
     await userEvent.selectOptions(
       screen.getByLabelText("Add to"),
       screen.getByRole("option", { name: /Open run/ }),
@@ -144,13 +170,13 @@ describe("ImportListDialog", () => {
     );
   });
 
-  it("requires a path", async () => {
+  it("requires a file", async () => {
     const { writes } = setup();
 
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Enter the path to a sheet.",
+      "Choose a spreadsheet file to upload.",
     );
     expect(writes()).toEqual([]);
   });

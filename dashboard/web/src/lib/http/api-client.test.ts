@@ -40,6 +40,22 @@ describe("createApiClient", () => {
     expect(url).toBe("http://api.test/things?q=a+b&n=2");
   });
 
+  it("postForm sends FormData without a JSON Content-Type and parses the result", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ id: 7, name: "up" }));
+    const form = new FormData();
+    form.append("file", new File(["x"], "a.csv", { type: "text/csv" }));
+    const data = await makeClient(fetchFn as unknown as typeof fetch).postForm(
+      "/upload",
+      { form, schema: itemSchema },
+    );
+    expect(data).toEqual({ id: 7, name: "up" });
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(form);
+    // No explicit Content-Type — the browser sets the multipart boundary.
+    expect(init.headers).toBeUndefined();
+  });
+
   it("throws ApiError kind shape on a schema mismatch", async () => {
     const fetchFn = vi.fn(async () => jsonResponse({ id: "nope" }));
     const promise = makeClient(fetchFn as unknown as typeof fetch).get("/x", {
