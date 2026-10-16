@@ -1,0 +1,29 @@
+@use "styles/settings/breakpoints" as bp;
+@use "styles/tools/media" as media;
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin-bottom: var(--space-7);
+}
+
+.subtitle {
+  margin: var(--space-2) 0 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+@include media.until(bp.$bp-toolbar) {
+  .header {
+    // Keep the title block on the left and the icon toggle pinned top-right.
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+}

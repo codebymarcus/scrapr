@@ -1,0 +1,37 @@
+@use "styles/objects/button" as button;
+@use "styles/tools/focus" as focus;
+@use "styles/tools/transition" as transition;
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  padding: var(--space-2) var(--space-4);
+
+  @include transition.transition(background-color, border-color);
+}
+
+.secondary {
+  @include button.button-secondary;
+}
+
+.primary {
+  border: 1px solid var(--color-accent-burnt);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: var(--font-weight-semibold);
+
+  &:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  @include focus.focus-ring;
+}

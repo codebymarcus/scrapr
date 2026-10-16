@@ -1,0 +1,199 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { createApiClient } from "@/lib/http/api-client";
+import { runKeys } from "../hooks/runs-keys";
+import { makeProject } from "@/test/fixtures";
+import { makeRun } from "../test/fixtures";
+import { NewRunDialog } from "./NewRunDialog";
+
+type Call = { path: string; method: string; body?: unknown };
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+const projects = [
+  makeProject({ id: 1, name: "Alpha" }),
+  makeProject({ id: 2, name: "Beta" }),
+];
+
+function setup(
+  handlers: Record<string, (call: Call) => Response> = {},
+) {
+  const calls: Call[] = [];
+  const fetchFn: typeof fetch = async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    const method = init?.method ?? "GET";
+    const call: Call = {
+      path,
+      method,
+      body: init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined,
+    };
+    calls.push(call);
+    const handler = handlers[`${method} ${path}`];
+    if (handler) return handler(call);
+    if (method === "GET" && path === "/api/projects") {
+      return json({ projects });
+    }
+    if (method === "POST" && path === "/api/runs") {
+      return json({ run: makeRun({ id: 9, project_id: 2 }) }, 201);
+    }
+    return json({ error: "not found" }, 404);
+  };
+  const client = createApiClient({ baseUrl: "http://test.local", fetchFn });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+  const onClose = vi.fn();
+  render(
+    <QueryClientProvider client={queryClient}>
+      <NewRunDialog client={client} onClose={onClose} />
+    </QueryClientProvider>,
+  );
+  const writes = () => calls.filter((call) => call.method === "POST");
+  return { calls, writes, invalidate, onClose };
+}
+
+async function pickProject(name: string) {
+  await screen.findByRole("option", { name });
+  await userEvent.selectOptions(screen.getByLabelText("Project"), name);
+}
+
+describe("NewRunDialog", () => {
+  it("is an accessible dialog that closes on Escape", async () => {
+    const { onClose } = setup();
+
+    const dialog = screen.getByRole("dialog", { name: "New run" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("creates a run for the chosen project, refreshes the list and closes", async () => {
+    const { writes, invalidate, onClose } = setup();
+
+    await pickProject("Beta");
+    await userEvent.type(screen.getByLabelText(/Label/), "Weekend batch");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes()).toEqual([
+      {
+        path: "/api/runs",
+        method: "POST",
+        body: { projectId: 2, label: "Weekend batch" },
+      },
+    ]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.lists() });
+  });
+
+  it("enqueues the pasted urls into the new run", async () => {
+    const { writes, onClose } = setup({
+      "POST /api/runs/9/items": () => json({ added: 2 }),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.type(
+      screen.getByLabelText(/URLs/),
+      "https://a.test/1{Enter}  http://b.test/2  {Enter}",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes().map((call) => [call.path, call.body])).toEqual([
+      ["/api/runs", { projectId: 1 }],
+      [
+        "/api/runs/9/items",
+        { urls: ["https://a.test/1", "http://b.test/2"] },
+      ],
+    ]);
+  });
+
+  it("never posts an empty url list", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Alpha");
+    await userEvent.type(screen.getByLabelText(/URLs/), "   {Enter}  ");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes().map((call) => call.path)).toEqual(["/api/runs"]);
+  });
+
+  it("blocks invalid urls client-side, before any request", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Alpha");
+    await userEvent.type(
+      screen.getByLabelText(/URLs/),
+      "https://a.test/1{Enter}not-a-url",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Line 2 must start with http:// or https://",
+    );
+    expect(writes()).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("requires a project", async () => {
+    const { writes } = setup();
+
+    await screen.findByRole("option", { name: "Alpha" });
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose a project",
+    );
+    expect(writes()).toEqual([]);
+  });
+
+  it("shows the server message when enqueueing hits a 409 and keeps the run", async () => {
+    const message =
+      "Cannot add items to a running run (only queued or stopped runs accept items)";
+    const { writes, onClose, invalidate } = setup({
+      "POST /api/runs/9/items": () => json({ error: message }, 409),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.type(screen.getByLabelText(/URLs/), "https://a.test/1");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(message);
+    expect(onClose).not.toHaveBeenCalled();
+    // The run exists, so the list must show it.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.lists() });
+
+    // Retrying must not create a second run.
+    await userEvent.click(screen.getByRole("button", { name: "Add URLs" }));
+    await vi.waitFor(() =>
+      expect(writes().map((call) => call.path)).toEqual([
+        "/api/runs",
+        "/api/runs/9/items",
+        "/api/runs/9/items",
+      ]),
+    );
+  });
+
+  it("shows a server error from creating the run", async () => {
+    const { onClose } = setup({
+      "POST /api/runs": () => json({ error: "Project not found" }, 404),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Project not found",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

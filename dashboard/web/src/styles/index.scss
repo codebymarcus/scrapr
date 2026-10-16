@@ -1,0 +1,10 @@
+// ITCSS order: settings -> tools (mixins, used on demand) -> generic ->
+// elements -> objects (mixins, used on demand).
+@use "styles/settings/theme";
+@use "styles/settings/spacing";
+@use "styles/settings/radii";
+@use "styles/settings/motion";
+@use "styles/settings/typography";
+@use "styles/generic/reset";
+@use "styles/generic/grain";
+@use "styles/elements/base";

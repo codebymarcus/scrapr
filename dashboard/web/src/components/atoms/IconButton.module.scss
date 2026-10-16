@@ -1,0 +1,46 @@
+@use "styles/objects/button" as button;
+@use "styles/tools/transition" as transition;
+@use "styles/tools/a11y" as a11y;
+
+.button {
+  @include button.button-secondary;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  flex-shrink: 0;
+
+  @include transition.transition(background-color, border-color);
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-text-secondary);
+  }
+
+  // While busy the spinning icon signals activity; show a progress cursor
+  // (overrides button-secondary's wait cursor).
+  &[data-busy="true"] {
+    cursor: progress;
+  }
+
+  > svg {
+    font-size: var(--font-size-lg);
+  }
+
+  &[data-busy="true"] > svg {
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@include a11y.reduced-motion {
+  .button[data-busy="true"] > svg {
+    animation: none;
+  }
+}

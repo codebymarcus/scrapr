@@ -1,0 +1,72 @@
+@use "styles/tools/focus" as focus;
+@use "styles/tools/a11y" as a11y;
+
+:root {
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-text);
+  line-height: var(--line-height-normal);
+
+  transition:
+    background-color var(--duration-theme) var(--ease-default),
+    color var(--duration-theme) var(--ease-default);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--color-accent);
+
+  &:hover {
+    color: var(--color-accent-hover);
+  }
+
+  @include focus.focus-ring;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button,
+input,
+select {
+  @include focus.focus-ring;
+}
+
+@include a11y.reduced-motion {
+  body {
+    transition: none;
+  }
+}

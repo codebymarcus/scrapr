@@ -1,0 +1,13 @@
+// Breakpoint mixins. Callers pass a value from settings/breakpoints, e.g.
+//   @include media.from(bp.$bp-grid-sm) { ... }
+@mixin from($bp) {
+  @media (min-width: $bp) {
+    @content;
+  }
+}
+
+@mixin until($bp) {
+  @media (max-width: $bp) {
+    @content;
+  }
+}

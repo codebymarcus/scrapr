@@ -1,0 +1,21 @@
+@use "styles/tools/focus" as focus;
+
+// Shared text-field surface for inputs and selects. Callers add their own
+// appearance tweaks (e.g. a select's chevron padding).
+@mixin form-control {
+  width: 100%;
+  min-height: 42px;
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+
+  &::placeholder {
+    color: var(--color-text-secondary);
+  }
+
+  @include focus.focus-ring(2px) {
+    border-color: var(--color-focus);
+  }
+}
