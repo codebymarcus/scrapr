@@ -34,6 +34,16 @@ export const MIGRATIONS = [
       );
     `,
   },
+  {
+    id: "002_secrets",
+    sql: `
+      CREATE TABLE secrets (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT
+      );
+    `,
+  },
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

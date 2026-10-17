@@ -129,3 +129,16 @@ test("nextQueuedRun returns the oldest queued run or null", () => {
   assert.equal(store.nextQueuedRun(), null);
   db.close();
 });
+
+test("secrets: set/get round-trips, unknown is null, set upserts, delete removes", () => {
+  const { db, store } = setup();
+  assert.equal(store.getSecret("drive.token"), null);
+  store.setSecret("drive.token", "v1:opaque-blob");
+  assert.equal(store.getSecret("drive.token"), "v1:opaque-blob");
+  store.setSecret("drive.token", "v1:second");
+  assert.equal(store.getSecret("drive.token"), "v1:second");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM secrets").get().n, 1);
+  store.deleteSecret("drive.token");
+  assert.equal(store.getSecret("drive.token"), null);
+  db.close();
+});

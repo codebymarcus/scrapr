@@ -50,6 +50,12 @@ export function createStore(db) {
     setItemResult: db.prepare(
       "UPDATE run_items SET saved = ?, total = ?, needs_review = ? WHERE id = ?",
     ),
+
+    getSecret: db.prepare("SELECT value FROM secrets WHERE key = ?"),
+    upsertSecret: db.prepare(
+      "INSERT INTO secrets (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    ),
+    deleteSecret: db.prepare("DELETE FROM secrets WHERE key = ?"),
   };
 
   const addItemsTx = db.transaction((runId, urls) => {
@@ -126,6 +132,17 @@ export function createStore(db) {
     },
     nextQueuedRun() {
       return q.nextQueuedRun.get() ?? null;
+    },
+
+    // Secrets: opaque (already-encrypted) strings; the store does no crypto.
+    getSecret(key) {
+      return q.getSecret.get(key)?.value ?? null;
+    },
+    setSecret(key, value) {
+      q.upsertSecret.run(key, value, now());
+    },
+    deleteSecret(key) {
+      q.deleteSecret.run(key);
     },
   };
 }
