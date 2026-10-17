@@ -151,10 +151,16 @@ export const previewImageSchema = z.object({
   message: z.string().optional(),
 });
 
+export const driveConnectSchema = z.object({
+  url: z.string(),
+});
+
 export const driveStatusSchema = z.object({
   connected: z.boolean(),
-  credentialsPath: z.string().optional(),
-  tokenPath: z.string().optional(),
+  /** OAuth client id/secret are present in the server env. */
+  configured: z.boolean(),
+  /** "ok" | "not-configured" | "needs-reconnect" (kept open for new reasons). */
+  reason: z.string(),
   hint: z.string().optional(),
 });
 
@@ -203,5 +209,6 @@ export type RunItem = z.infer<typeof itemSchema>;
 export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TextPreview = z.infer<typeof previewTextSchema>;
 export type ImagePreview = z.infer<typeof previewImageSchema>;
+export type DriveConnect = z.infer<typeof driveConnectSchema>;
 export type DriveStatus = z.infer<typeof driveStatusSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;

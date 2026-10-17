@@ -38,7 +38,7 @@ export function SettingsPage({ client = dashboardClient }: SettingsPageProps) {
       );
     }
 
-    return <DriveStatusCard status={driveQuery.data} />;
+    return <DriveStatusCard status={driveQuery.data} client={client} />;
   }
 
   return (

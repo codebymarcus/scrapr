@@ -143,8 +143,16 @@ describe("preview + drive schemas", () => {
   });
 
   it("accepts a drive status", () => {
+    expect(
+      driveStatusSchema.safeParse({
+        connected: false,
+        configured: true,
+        reason: "needs-reconnect",
+        hint: "Reconnect Drive.",
+      }).success,
+    ).toBe(true);
     expect(driveStatusSchema.safeParse({ connected: false }).success).toBe(
-      true,
+      false,
     );
   });
 });
