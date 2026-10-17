@@ -17,6 +17,21 @@ services:
       HOST: 0.0.0.0
       PORT: "5174"
       NODE_ENV: development
+      # Google Drive (optional): the dashboard's in-app "Connect Google Drive"
+      # button. Uncomment and fill these in, then restart.
+      #   Client ID/secret: a Google Cloud OAuth "Web application" client.
+      # GOOGLE_OAUTH_CLIENT_ID: "<client-id>.apps.googleusercontent.com"
+      # GOOGLE_OAUTH_CLIENT_SECRET: "<client-secret>"
+      #   IMPORTANT: must equal the origin you browse the dashboard from plus
+      #   /api/drive/callback. In this dev stack you browse Vite on :5173, so use
+      #   http://localhost:5173/api/drive/callback (Vite proxies /api), and
+      #   register it as an authorized redirect URI on the Google OAuth client.
+      # GOOGLE_OAUTH_REDIRECT_URI: "http://localhost:5173/api/drive/callback"
+      #   Base64-encoded 32-byte key that encrypts the stored Drive token.
+      #   Generate: openssl rand -base64 32
+      #     or: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      #   Without it Drive stays "not configured".
+      # APP_SECRET_KEY: "<base64-32-byte-key>"
     command: ["node", "--watch", "dashboard/server/src/server.mjs"]
     volumes:
       - ./src:/app/src

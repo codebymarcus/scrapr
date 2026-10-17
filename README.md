@@ -469,6 +469,45 @@ node scrape.mjs "<url>" --settle 2000 --jitter 0.5 --rate-limit-base 5000
 ## Upload to Google Drive
 
 Optionally push each finished `.cbz`/`.pdf` to Google Drive after it's built.
+There are two ways to authorize Drive: the **dashboard's in-app "Connect Google
+Drive" button** (recommended for the dashboard) and `node authorize.mjs` (for
+the CLI / terminal use).
+
+### Dashboard: in-app "Connect Google Drive"
+
+The dashboard (Settings page) has a **Connect Google Drive** button. It needs a
+Google OAuth client of type **Web application** and these server environment
+variables:
+
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID of the Google Cloud OAuth *Web application* client |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Its client secret |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Where Google sends the browser back. Default `http://localhost:<PORT>/api/drive/callback` (PORT defaults to 5174) |
+| `APP_SECRET_KEY` | Base64-encoded 32-byte key used to encrypt the stored Drive token. Generate with `openssl rand -base64 32`. Without it Drive shows "not configured" |
+
+> **Redirect URI must match the origin you browse the dashboard from, and be
+> registered with Google.** The OAuth `state` is kept in a SameSite=Lax cookie
+> set when you click Connect, so Google must send you back to the *same origin*
+> you started from, or connecting fails with `drive=error`. With the default
+> Docker Compose setup the dashboard is served at `http://localhost:8080` (nginx
+> proxies `/api` to the server), so set
+> `GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/drive/callback` — not the
+> server's own `:5174`. With the dev compose stack (Vite on `:5173`) use
+> `http://localhost:5173/api/drive/callback`. Whatever value you choose must also
+> be added under **Authorized redirect URIs** on the Google OAuth client.
+
+Set these in the server's environment (see the commented placeholders in
+`compose.yaml` / `compose.dev.yaml`), restart, then click **Connect Google
+Drive** in Settings. Steps in Google Cloud: create a project → enable the
+**Google Drive API** → configure the OAuth consent screen (scope
+`.../auth/drive.file`, add your account as a Test user) → create an **OAuth
+client ID → Web application** and add the redirect URI above.
+
+### CLI: `authorize.mjs`
+
+The command-line scraper uses a separate Desktop-app credential and token file
+(it does not use the env vars above).
 
 **One-time setup**
 

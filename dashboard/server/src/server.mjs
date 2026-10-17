@@ -35,6 +35,16 @@ const driveAuth = createDriveAuth({
   clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
   redirectUri: GOOGLE_OAUTH_REDIRECT_URI,
 });
+if (
+  GOOGLE_OAUTH_CLIENT_ID &&
+  GOOGLE_OAUTH_CLIENT_SECRET &&
+  HOST === "0.0.0.0" &&
+  !process.env.GOOGLE_OAUTH_REDIRECT_URI
+) {
+  console.warn(
+    "GOOGLE_OAUTH_REDIRECT_URI is not set; set it to the origin you browse the dashboard from + /api/drive/callback (e.g. http://localhost:8080/api/drive/callback) and register it in Google Cloud.",
+  );
+}
 // The same dir the results route reads from.
 const runOutDir = defaultRunOutDir;
 // hub.emit is synchronous, as the run manager requires.

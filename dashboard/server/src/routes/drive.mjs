@@ -101,7 +101,9 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
     try {
       await driveAuth.exchangeCode(code);
     } catch (err) {
-      req.log.warn({ err }, "drive code exchange failed");
+      // Log only message/code: a gaxios error's `config` carries the auth code
+      // and client_secret, so never log the error object itself.
+      req.log.warn({ message: err?.message, code: err?.code }, "drive code exchange failed");
       return done("error");
     }
     return done("connected");
