@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { runEventSchema } from "@/lib/schemas";
 import { deriveWsBase } from "@/lib/ws-base";
 import type { Run, RunEvent } from "@/lib/schemas";
-import type { CachedRunDetail } from "../types";
+import type { CachedRunDetail, LogLine } from "../types";
 import { runKeys } from "./runs-keys";
 
 const WS_BASE = deriveWsBase({
@@ -30,6 +30,9 @@ type UseRunEventsOptions = {
   /** Injectable for tests; defaults to the browser `WebSocket`. */
   socketFactory?: SocketFactory;
 };
+
+/** Most recent log lines retained per run in the cache. */
+export const MAX_LOG_LINES = 1000;
 
 const TERMINAL_STATES = new Set<Run["state"]>(["done", "failed", "stopped"]);
 
@@ -61,7 +64,7 @@ function applyEvent(
         if (!detail?.live) {
           return detail;
         }
-        return { run: detail.run, items: detail.items };
+        return { ...detail, live: undefined };
       });
       return;
     }
@@ -103,8 +106,23 @@ function applyEvent(
       }
       return;
     }
-    case "log":
+    case "log": {
+      queryClient.setQueryData<CachedRunDetail>(detailKey, (detail) => {
+        if (!detail) {
+          return detail;
+        }
+        const previous = detail.logs ?? [];
+        const seq = previous.length > 0 ? previous[previous.length - 1].seq + 1 : 1;
+        const line: LogLine = {
+          seq,
+          level: event.level,
+          message: event.message,
+          ts: event.ts,
+        };
+        return { ...detail, logs: [...previous, line].slice(-MAX_LOG_LINES) };
+      });
       return;
+    }
   }
 }
 

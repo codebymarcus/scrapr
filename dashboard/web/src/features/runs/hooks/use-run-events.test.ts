@@ -7,7 +7,7 @@ import type { RunEvent } from "@/lib/schemas";
 import { makeItem, makeRun } from "../test/fixtures";
 import type { CachedRunDetail } from "../types";
 import { runKeys } from "./runs-keys";
-import { useRunEvents } from "./use-run-events";
+import { MAX_LOG_LINES, useRunEvents } from "./use-run-events";
 import type { RunSocket } from "./use-run-events";
 
 class FakeSocket {
@@ -267,5 +267,69 @@ describe("useRunEvents", () => {
 
     expect(sockets[0].closed).toBe(true);
     expect(result.current.connected).toBe(false);
+  });
+
+  it("appends log events to the cached detail with increasing seq", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() => {
+      sockets[0].emit({ type: "log", level: "info", message: "first", ts: 1 });
+      sockets[0].emit({ type: "log", message: "second" });
+    });
+
+    const logs = queryClient.getQueryData<CachedRunDetail>(
+      runKeys.detail(1),
+    )?.logs;
+    expect(logs).toHaveLength(2);
+    expect(logs?.[0]).toMatchObject({ level: "info", message: "first", ts: 1 });
+    expect(logs?.[1]).toMatchObject({ message: "second" });
+    expect(logs?.[1].level).toBeUndefined();
+    expect(logs![1].seq).toBeGreaterThan(logs![0].seq);
+  });
+
+  it("keeps only the most recent MAX_LOG_LINES log lines", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    const total = MAX_LOG_LINES + 5;
+    act(() => {
+      for (let index = 0; index < total; index += 1) {
+        sockets[0].emit({ type: "log", message: `line ${index}` });
+      }
+    });
+
+    const logs =
+      queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1))?.logs ?? [];
+    expect(logs).toHaveLength(MAX_LOG_LINES);
+    expect(logs[logs.length - 1].message).toBe(`line ${total - 1}`);
+    expect(logs[0].message).toBe("line 5");
+    expect(logs.some((line) => line.message === "line 0")).toBe(false);
+    const seqs = logs.map((line) => line.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
+
+  it("does not create a detail from a log event when none is cached", () => {
+    const { sockets, queryClient } = setup();
+
+    act(() => sockets[0].emit({ type: "log", message: "orphan" }));
+
+    expect(queryClient.getQueryData(runKeys.detail(1))).toBeUndefined();
+  });
+
+  it("keeps retained logs when progress ends", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() => {
+      sockets[0].emit({ type: "progress", current: 1, total: 2 });
+      sockets[0].emit({ type: "log", message: "kept" });
+      sockets[0].emit({ type: "progress-end" });
+    });
+
+    const cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
+    expect(cached?.live).toBeUndefined();
+    expect(cached?.logs?.map((line) => line.message)).toEqual(["kept"]);
   });
 });
