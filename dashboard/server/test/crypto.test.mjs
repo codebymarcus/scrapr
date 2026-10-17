@@ -18,6 +18,18 @@ test("tampered blob throws", () => {
   assert.throws(() => decryptSecret(blob.slice(0, -2) + "xy", key));
 });
 
+test("truncated auth tag throws", () => {
+  const [v, iv, tag, enc] = encryptSecret("hi", key).split(":");
+  const short = Buffer.from(tag, "base64").subarray(0, 4).toString("base64");
+  assert.throws(() => decryptSecret([v, iv, short, enc].join(":"), key), /malformed/);
+});
+
+test("wrong-length IV throws", () => {
+  const [v, iv, tag, enc] = encryptSecret("hi", key).split(":");
+  const badIv = Buffer.from(iv, "base64").subarray(0, 8).toString("base64");
+  assert.throws(() => decryptSecret([v, badIv, tag, enc].join(":"), key), /malformed/);
+});
+
 test("malformed blob throws", () => {
   assert.throws(() => decryptSecret("garbage", key));
 });
