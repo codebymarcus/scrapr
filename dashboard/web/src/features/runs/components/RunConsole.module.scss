@@ -1,0 +1,63 @@
+// A terminal is dark in both themes, so it uses fixed colours rather than
+// the theme tokens (the base palette flips light/dark; this must not).
+.console {
+  --console-bg: #0b1220;
+  --console-text: #d6dde8;
+  --console-muted: #7c8aa0;
+  --console-success: #7fd18b;
+  --console-warn: #e6b450;
+  --console-error: #ff7b72;
+  --console-section: #79b8ff;
+
+  box-sizing: border-box;
+  max-height: 260px;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--console-bg);
+  color: var(--console-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  list-style: none;
+}
+
+.row {
+  margin: 0;
+}
+
+.line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--console-muted);
+}
+
+.success {
+  color: var(--console-success);
+}
+
+.warn {
+  color: var(--console-warn);
+}
+
+.error {
+  color: var(--console-error);
+  font-weight: var(--font-weight-semibold);
+}
+
+.section {
+  color: var(--console-section);
+  font-weight: var(--font-weight-semibold);
+}
+
+.step {
+  color: var(--console-text);
+  opacity: 0.85;
+}

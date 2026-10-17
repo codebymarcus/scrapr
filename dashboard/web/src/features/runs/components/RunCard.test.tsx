@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
+import { runKeys } from "../hooks/runs-keys";
 import { makeItem, makeRun } from "../test/fixtures";
 import { RunCard } from "./RunCard";
 
@@ -217,5 +218,80 @@ describe("RunCard", () => {
     });
 
     expect(fetchFn.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  describe("live console", () => {
+    function renderRunning() {
+      const run = makeRun({ id: 1, state: "running" });
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      let socket: RunSocket = idleSocket();
+      const { client } = makeClient(() => json({ run, items: [] }));
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RunCard
+            run={run}
+            client={client}
+            socketFactory={() => {
+              socket = idleSocket();
+              return socket;
+            }}
+          />
+        </QueryClientProvider>,
+      );
+      const emit = (event: object) =>
+        act(() => {
+          socket.onmessage?.call(
+            socket as unknown as WebSocket,
+            { data: JSON.stringify(event) } as MessageEvent,
+          );
+        });
+      return { emit, queryClient };
+    }
+
+    it("toggles a console fed from the cached detail's logs", async () => {
+      const { emit, queryClient } = renderRunning();
+      // Log events append to the cached detail, so let it land first.
+      await waitFor(() =>
+        expect(queryClient.getQueryData(runKeys.detail(1))).toBeDefined(),
+      );
+
+      expect(screen.queryByRole("log")).not.toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: /console/i });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      emit({ type: "log", level: "info", message: "Fetching chapter 1" });
+      emit({
+        type: "log",
+        level: "success",
+        message: "Uploaded page-01.jpg to Drive",
+      });
+      await userEvent.click(toggle);
+
+      expect(screen.getByRole("log")).toBeInTheDocument();
+      expect(screen.getByText("Fetching chapter 1")).toBeInTheDocument();
+      expect(
+        screen.getByText("Uploaded page-01.jpg to Drive"),
+      ).toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+      await userEvent.click(toggle);
+      expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    });
+
+    it("shows the empty state when the cache has no logs", async () => {
+      renderRunning();
+      await userEvent.click(screen.getByRole("button", { name: /console/i }));
+      expect(screen.getByText(/no output yet/i)).toBeInTheDocument();
+    });
+
+    it("offers no console on a non-running card", () => {
+      renderCard({ run: makeRun({ id: 2, state: "done" }) });
+      expect(
+        screen.queryByRole("button", { name: /console/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    });
   });
 });

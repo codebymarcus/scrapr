@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/atoms/Badge";
 import { Button } from "@/components/atoms/Button";
+import { ListIcon } from "@/components/atoms/icons/ListIcon";
 import { PlayIcon } from "@/components/atoms/icons/PlayIcon";
 import { StopIcon } from "@/components/atoms/icons/StopIcon";
 import { SegmentedMeter } from "@/components/atoms/SegmentedMeter";
@@ -17,6 +18,7 @@ import type { SocketFactory } from "../hooks/use-run-events";
 import type { RunContentType, RunProgress } from "../types";
 import { runName } from "../utils";
 import styles from "./RunCard.module.scss";
+import { RunConsole } from "./RunConsole";
 
 // Poll the run detail at this cadence while the live socket is down.
 const POLL_INTERVAL_MS = 3000;
@@ -68,6 +70,9 @@ export function RunCard({
       void queryClient.invalidateQueries({ queryKey: runKeys.lists() });
     }
   }, [isRunning, connected, polledState, run.state, queryClient]);
+
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const consoleId = useId();
 
   const { start, stop, resume } = useRunActions(client, {
     onFailure: onActionError,
@@ -141,7 +146,24 @@ export function RunCard({
             Stop
           </Button>
         ) : null}
+        {isRunning ? (
+          <Button
+            className={styles.consoleToggle}
+            aria-expanded={consoleOpen}
+            aria-controls={consoleId}
+            onClick={() => setConsoleOpen((open) => !open)}
+          >
+            <ListIcon />
+            Console
+          </Button>
+        ) : null}
       </div>
+
+      {isRunning && consoleOpen ? (
+        <div id={consoleId} className={styles.console}>
+          <RunConsole logs={detail.data?.logs ?? []} />
+        </div>
+      ) : null}
 
       {actionError ? (
         <Text variant="small" tone="negative" role="alert">
