@@ -65,20 +65,28 @@ export class DriveUploader {
 
   // Build from config; throws a clear, actionable error if not set up yet.
   static async create(config, logger) {
-    const credPath = path.resolve(config.driveCredentials);
-    const tokenPath = path.resolve(config.driveToken);
-    if (!existsSync(credPath)) {
-      throw new Error(`Drive credentials not found at ${credPath}. Download the OAuth "Desktop app" JSON from Google Cloud and save it there.`);
-    }
-    if (!existsSync(tokenPath)) {
-      throw new Error(`Drive token not found at ${tokenPath}. Run "node authorize.mjs" once to authorize.`);
-    }
-    const raw = JSON.parse(await readFile(credPath, "utf8"));
-    const c = raw.installed || raw.web;
-    if (!c) throw new Error(`${credPath} is not an OAuth client file (expected an "installed" or "web" key).`);
+    let auth;
+    if (config.driveAuth?.clientId && config.driveAuth?.token) {
+      // In-memory credentials (injected by the dashboard); no files are read.
+      const { clientId, clientSecret, token } = config.driveAuth;
+      auth = new google.auth.OAuth2(clientId, clientSecret);
+      auth.setCredentials(token);
+    } else {
+      const credPath = path.resolve(config.driveCredentials);
+      const tokenPath = path.resolve(config.driveToken);
+      if (!existsSync(credPath)) {
+        throw new Error(`Drive credentials not found at ${credPath}. Download the OAuth "Desktop app" JSON from Google Cloud and save it there.`);
+      }
+      if (!existsSync(tokenPath)) {
+        throw new Error(`Drive token not found at ${tokenPath}. Run "node authorize.mjs" once to authorize.`);
+      }
+      const raw = JSON.parse(await readFile(credPath, "utf8"));
+      const c = raw.installed || raw.web;
+      if (!c) throw new Error(`${credPath} is not an OAuth client file (expected an "installed" or "web" key).`);
 
-    const auth = new google.auth.OAuth2(c.client_id, c.client_secret, c.redirect_uris?.[0] || "http://localhost");
-    auth.setCredentials(JSON.parse(await readFile(tokenPath, "utf8")));
+      auth = new google.auth.OAuth2(c.client_id, c.client_secret, c.redirect_uris?.[0] || "http://localhost");
+      auth.setCredentials(JSON.parse(await readFile(tokenPath, "utf8")));
+    }
     const drive = google.drive({ version: "v3", auth });
     const uploader = new DriveUploader(drive, config.driveFolder, logger, {
       maxRetries: config.maxRetries,
