@@ -2,13 +2,14 @@ import Fastify from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyWebsocket from "@fastify/websocket";
 import { createHub } from "./hub.mjs";
+import { driveRoutes } from "./routes/drive.mjs";
 import { previewRoutes } from "./routes/preview.mjs";
 import { projectRoutes } from "./routes/projects.mjs";
 import { runRoutes } from "./routes/runs.mjs";
 import { systemRoutes } from "./routes/system.mjs";
 import { wsRoutes } from "./routes/ws.mjs";
 
-// deps: { store, runManager, browserFactory, fetch, driveStatus, hub } — all
+// deps: { store, runManager, browserFactory, fetch, driveAuth, hub } — all
 // injectable so tests pass fakes. Unset deps default lazily to real
 // implementations in the routes/modules that need them.
 export function buildApp(deps = {}) {
@@ -27,7 +28,8 @@ export function buildApp(deps = {}) {
     limits: { files: 1, fileSize: deps.uploadMaxBytes ?? 5_000_000 },
   });
   app.register(wsRoutes, { hub });
-  app.register(systemRoutes, { driveStatus: deps.driveStatus });
+  app.register(systemRoutes);
+  app.register(driveRoutes, { driveAuth: deps.driveAuth });
   app.register(previewRoutes, {
     getBrowser: deps.getBrowser,
     previewText: deps.previewText,

@@ -2,10 +2,19 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp } from "./app.mjs";
 import { closeBrowser, getBrowser } from "./browser-pool.mjs";
-import { DATA_DIR, HOST, PORT } from "./config.mjs";
+import {
+  APP_SECRET_KEY,
+  DATA_DIR,
+  GOOGLE_OAUTH_CLIENT_ID,
+  GOOGLE_OAUTH_CLIENT_SECRET,
+  GOOGLE_OAUTH_REDIRECT_URI,
+  HOST,
+  PORT,
+} from "./config.mjs";
 import { openDb } from "./db/db.mjs";
 import { migrate } from "./db/migrations.mjs";
 import { createStore } from "./db/store.mjs";
+import { createDriveAuth } from "./drive-auth.mjs";
 import { createHub } from "./hub.mjs";
 import { defaultRunOutDir } from "./routes/runs.mjs";
 import { createRunManager } from "./run-manager.mjs";
@@ -18,6 +27,14 @@ const db = openDb(join(DATA_DIR, "scrapr.db"));
 migrate(db);
 const store = createStore(db);
 const hub = createHub();
+// Boots fine without the OAuth env/key; Drive then reports "not-configured".
+const driveAuth = createDriveAuth({
+  store,
+  key: APP_SECRET_KEY,
+  clientId: GOOGLE_OAUTH_CLIENT_ID,
+  clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
+  redirectUri: GOOGLE_OAUTH_REDIRECT_URI,
+});
 // The same dir the results route reads from.
 const runOutDir = defaultRunOutDir;
 // hub.emit is synchronous, as the run manager requires.
@@ -32,6 +49,7 @@ const app = buildApp({
   store,
   runManager,
   hub,
+  driveAuth,
   runOutDir,
   getBrowser,
   fetch: globalThis.fetch,
