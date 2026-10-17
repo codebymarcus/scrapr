@@ -86,6 +86,23 @@ test("create run bound to a project, list and get", async () => {
   await teardown(ctx);
 });
 
+test("create run with overrides persists them and rejects invalid ones", async () => {
+  const ctx = setup();
+  const { app, project, store } = ctx;
+  const overrides = { drive: true, driveFolder: "ID", driveSubfolder: "sub" };
+  const res = await app.inject({ method: "POST", url: "/api/runs", payload: { projectId: project.id, overrides } });
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(res.json().run.overrides, overrides);
+  assert.deepEqual(store.getRun(res.json().run.id).overrides, overrides);
+
+  const plain = await createRun(app, project.id);
+  assert.equal(plain.body.run.overrides, null);
+
+  const bad = await app.inject({ method: "POST", url: "/api/runs", payload: { projectId: project.id, overrides: { drive: "yes" } } });
+  assert.equal(bad.statusCode, 400);
+  await teardown(ctx);
+});
+
 test("create run validates body and project existence", async () => {
   const ctx = setup();
   const { app } = ctx;

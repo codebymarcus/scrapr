@@ -44,6 +44,10 @@ export const MIGRATIONS = [
       );
     `,
   },
+  {
+    id: "003_run_overrides",
+    sql: `ALTER TABLE runs ADD COLUMN overrides_json TEXT;`,
+  },
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

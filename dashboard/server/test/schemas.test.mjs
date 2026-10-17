@@ -86,6 +86,18 @@ test("createRunSchema requires numeric projectId", () => {
   assert.equal(createRunSchema.safeParse({ projectId: "1" }).success, false);
 });
 
+test("createRunSchema accepts valid overrides and rejects a wrong-typed one", () => {
+  const ok = createRunSchema.safeParse({
+    projectId: 1,
+    overrides: { drive: true, driveFolder: "ID", driveSubfolder: "sub" },
+  });
+  assert.equal(ok.success, true);
+  assert.deepEqual(ok.data.overrides, { drive: true, driveFolder: "ID", driveSubfolder: "sub" });
+  assert.equal(createRunSchema.safeParse({ projectId: 1, overrides: {} }).success, true);
+  assert.equal(createRunSchema.safeParse({ projectId: 1, overrides: { drive: "yes" } }).success, false);
+  assert.equal(createRunSchema.safeParse({ projectId: 1, overrides: { driveFolder: 5 } }).success, false);
+});
+
 test("enqueueSchema accepts http(s) urls", () => {
   const r = enqueueSchema.safeParse({ urls: ["http://a.com/x", "https://b.com/y"] });
   assert.equal(r.success, true);

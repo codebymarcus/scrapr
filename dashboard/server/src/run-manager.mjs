@@ -20,6 +20,7 @@ export function createRunManager({
   runnerFactory = defaultRunnerFactory,
   now = () => new Date().toISOString(),
   runOutDir,
+  driveAuth: driveAuthService,
 }) {
   let active = null; // { runId, runner, stopRequested }
   let current = null; // promise of the active run's execution (plus queue drain)
@@ -72,7 +73,9 @@ export function createRunManager({
       store.setRunState(runId, "running", { startedAt: now() });
       safeEmit(runId, { type: "state", state: "running" });
 
-      const config = buildRunConfig(recipe, { runOutDir: runOutDir(run) });
+      // In-memory OAuth credentials (null when Drive is not connected -> engine falls back to files).
+      const driveAuth = driveAuthService?.loadAuthConfig?.() ?? undefined;
+      const config = buildRunConfig(recipe, { runOutDir: runOutDir(run), overrides: run.overrides, driveAuth });
       const logger = createEventLogger((ev) => safeEmit(runId, ev));
 
       // Must never throw: a throwing onItem would abort the whole batch.

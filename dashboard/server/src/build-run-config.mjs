@@ -11,9 +11,18 @@ function copyOutput(config, output = {}) {
   }
 }
 
+// Per-run Drive overrides (image output only); unset keys keep what the recipe/engine set.
+const OVERRIDE_KEYS = ["drive", "driveFolder", "driveSubfolder"];
+
+function applyOverrides(config, overrides) {
+  for (const key of OVERRIDE_KEYS) {
+    if (overrides?.[key] !== undefined) config[key] = overrides[key];
+  }
+}
+
 // Translate a recipe into the engine's flat config. `url`/`listFile` stay null: the
 // StoreJobSource supplies the jobs. `out` is the per-run directory the results route reads.
-export function buildRunConfig(recipe, { runOutDir }) {
+export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
   const config = {
     ...DEFAULTS,
     out: runOutDir,
@@ -21,11 +30,14 @@ export function buildRunConfig(recipe, { runOutDir }) {
     driveCredentials: DRIVE_CREDENTIALS_PATH,
     driveToken: DRIVE_TOKEN_PATH,
   };
+  // In-memory OAuth credentials make the engine skip the credential/token files.
+  if (driveAuth) config.driveAuth = driveAuth;
 
   // Built-in recipe: a standard image config. The engine's own URL-matched profile drives
   // extraction, so no imageRules and no text wiring are set.
   if (recipe.builtIn) {
     copyOutput(config, recipe.output);
+    applyOverrides(config, overrides);
     return config;
   }
 
@@ -36,10 +48,13 @@ export function buildRunConfig(recipe, { runOutDir }) {
     // string form would drop a field's `attr`/`many`. With textSelect empty, scrapeText
     // falls back to the bound profile's text.fields (boundResolver(recipe)), which keeps them.
     if (recipe.text?.patterns?.length) config.textPatterns = [...recipe.text.patterns];
+    // Text runs have no output wiring: per-run overrides are deliberately ignored so a text
+    // run can never silently turn Drive on.
     return config;
   }
 
   copyOutput(config, recipe.output);
+  applyOverrides(config, overrides);
   config.imageRules = imageRulesFromRecipe(recipe);
   return config;
 }

@@ -67,6 +67,44 @@ test("start runs the run: running -> done, with config and items processed", asy
   db.close();
 });
 
+test("execute merges run overrides and in-memory driveAuth into the engine config", async () => {
+  const { db, store, project, emit } = setup();
+  const run = store.createRun({
+    projectId: project.id,
+    label: "L",
+    overrides: { drive: true, driveFolder: "FOLDER", driveSubfolder: "sub" },
+  });
+  store.addItems(run.id, ["https://e.com/1"]);
+  const creds = { clientId: "cid", clientSecret: "sec", token: { refresh_token: "r" } };
+  const driveAuth = { loadAuthConfig: () => creds };
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", driveAuth });
+  await mgr.start(run.id);
+  const cfg = factory.created[0].config;
+  assert.equal(cfg.drive, true);
+  assert.equal(cfg.driveFolder, "FOLDER");
+  assert.equal(cfg.driveSubfolder, "sub");
+  assert.deepEqual(cfg.driveAuth, creds);
+  // The project recipe is not mutated by the overrides.
+  assert.deepEqual(store.getProject(project.id).recipe, imageRecipe);
+  db.close();
+});
+
+test("execute without driveAuth or overrides leaves config.driveAuth unset; unconfigured auth (null) too", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const a = makeRun(["https://e.com/1"]);
+  const f1 = fakeFactory(async () => 0);
+  await createRunManager({ store, emit, runnerFactory: f1, runOutDir: () => "/o" }).start(a.id);
+  assert.equal(f1.created[0].config.driveAuth, undefined);
+
+  const b = makeRun(["https://e.com/1"]);
+  const f2 = fakeFactory(async () => 0);
+  const driveAuth = { loadAuthConfig: () => null };
+  await createRunManager({ store, emit, runnerFactory: f2, runOutDir: () => "/o", driveAuth }).start(b.id);
+  assert.equal(f2.created[0].config.driveAuth, undefined);
+  db.close();
+});
+
 test("onItem stores result, flags zero-saved as needs_review, and emits an item event", async () => {
   const { db, store, emit, makeRun, events } = setup();
   const run = makeRun(["https://e.com/1", "https://e.com/2"]);

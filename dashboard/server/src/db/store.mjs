@@ -8,6 +8,13 @@ function projectFromRow(row) {
   return { ...rest, recipe: JSON.parse(recipeJson) };
 }
 
+// Parses overrides_json into an `overrides` object (null when none were set).
+function runFromRow(row) {
+  if (!row) return null;
+  const { overrides_json: overridesJson, ...rest } = row;
+  return { ...rest, overrides: overridesJson ? JSON.parse(overridesJson) : null };
+}
+
 export function createStore(db) {
   const q = {
     insertProject: db.prepare(
@@ -21,7 +28,7 @@ export function createStore(db) {
     deleteProject: db.prepare("DELETE FROM projects WHERE id = ?"),
 
     insertRun: db.prepare(
-      "INSERT INTO runs (project_id, label, state, created_at) VALUES (?, ?, 'queued', ?)",
+      "INSERT INTO runs (project_id, label, state, created_at, overrides_json) VALUES (?, ?, 'queued', ?, ?)",
     ),
     listRuns: db.prepare("SELECT * FROM runs ORDER BY id ASC"),
     getRun: db.prepare("SELECT * FROM runs WHERE id = ?"),
@@ -71,7 +78,7 @@ export function createStore(db) {
   }
 
   function getRun(id) {
-    return q.getRun.get(id) ?? null;
+    return runFromRow(q.getRun.get(id));
   }
 
   return {
@@ -109,12 +116,12 @@ export function createStore(db) {
     },
 
     // Runs and items.
-    createRun({ projectId, label }) {
-      const info = q.insertRun.run(projectId, label, now());
+    createRun({ projectId, label, overrides }) {
+      const info = q.insertRun.run(projectId, label, now(), JSON.stringify(overrides ?? null));
       return getRun(Number(info.lastInsertRowid));
     },
     listRuns() {
-      return q.listRuns.all();
+      return q.listRuns.all().map(runFromRow);
     },
     getRun,
     // times: { startedAt?, finishedAt? } as ISO strings; omitted fields are left unchanged.
@@ -131,7 +138,7 @@ export function createStore(db) {
       q.setItemResult.run(saved, total, needsReview ? 1 : 0, id);
     },
     nextQueuedRun() {
-      return q.nextQueuedRun.get() ?? null;
+      return runFromRow(q.nextQueuedRun.get());
     },
 
     // Secrets: opaque (already-encrypted) strings; the store does no crypto.

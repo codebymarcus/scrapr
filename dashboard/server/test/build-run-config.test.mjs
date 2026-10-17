@@ -58,6 +58,54 @@ test("text recipe maps mode and patterns; fields stay on the bound profile", () 
   assert.deepEqual(pat.textPatterns, ["email", "phone"]);
 });
 
+test("image recipe: overrides win over output drive settings", () => {
+  const recipe = { name: "I", contentType: "image", output: { drive: false, driveFolder: "recipe", driveSubfolder: "rs" } };
+  const cfg = buildRunConfig(recipe, {
+    runOutDir: "/o",
+    overrides: { drive: true, driveFolder: "X", driveSubfolder: "Y" },
+  });
+  assert.equal(cfg.drive, true);
+  assert.equal(cfg.driveFolder, "X");
+  assert.equal(cfg.driveSubfolder, "Y");
+  // The recipe itself is never mutated.
+  assert.equal(recipe.output.drive, false);
+  assert.equal(recipe.output.driveFolder, "recipe");
+});
+
+test("image recipe: partial/absent overrides leave recipe output untouched", () => {
+  const recipe = { name: "I", contentType: "image", output: { drive: true, driveFolder: "F", driveSubfolder: "S" } };
+  const partial = buildRunConfig(recipe, { runOutDir: "/o", overrides: { driveFolder: "X" } });
+  assert.equal(partial.drive, true);
+  assert.equal(partial.driveFolder, "X");
+  assert.equal(partial.driveSubfolder, "S");
+  const off = buildRunConfig(recipe, { runOutDir: "/o", overrides: { drive: false } });
+  assert.equal(off.drive, false);
+  const none = buildRunConfig(recipe, { runOutDir: "/o", overrides: null });
+  assert.equal(none.drive, true);
+  assert.equal(none.driveFolder, "F");
+});
+
+test("driveAuth is passed through to config.driveAuth; absent leaves it unset", () => {
+  const driveAuth = { clientId: "id", clientSecret: "secret", token: { refresh_token: "r" } };
+  const cfg = buildRunConfig({ name: "I", contentType: "image" }, { runOutDir: "/o", driveAuth });
+  assert.deepEqual(cfg.driveAuth, driveAuth);
+  const without = buildRunConfig({ name: "I", contentType: "image" }, { runOutDir: "/o" });
+  assert.equal(without.driveAuth, undefined);
+});
+
+test("text recipe ignores drive overrides (never turns Drive on)", () => {
+  const recipe = { name: "T", contentType: "text", text: { mode: "pattern", patterns: ["x"] } };
+  const cfg = buildRunConfig(recipe, {
+    runOutDir: "/o",
+    overrides: { drive: true, driveFolder: "X", driveSubfolder: "Y" },
+  });
+  assert.notEqual(cfg.drive, true);
+  assert.equal(cfg.drive, DEFAULTS.drive);
+  assert.equal(cfg.driveFolder, DEFAULTS.driveFolder);
+  assert.equal(cfg.driveSubfolder, DEFAULTS.driveSubfolder);
+  assert.equal(cfg.text, true);
+});
+
 test("drive credential/token paths are absolute", () => {
   const cfg = buildRunConfig({ name: "I", contentType: "image" }, { runOutDir: "/o" });
   assert.ok(isAbsolute(cfg.driveCredentials));

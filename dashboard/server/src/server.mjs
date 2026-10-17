@@ -42,6 +42,7 @@ const runManager = createRunManager({
   store,
   emit: hub.emit,
   runOutDir,
+  driveAuth,
   now: () => new Date().toISOString(),
 });
 

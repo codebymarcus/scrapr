@@ -130,6 +130,23 @@ test("nextQueuedRun returns the oldest queued run or null", () => {
   db.close();
 });
 
+test("createRun persists overrides; getRun/listRuns/nextQueuedRun parse them; absent is null", () => {
+  const { db, store } = setup();
+  const p = store.createProject({ name: "P", recipe: {} });
+  const overrides = { drive: true, driveFolder: "ID", driveSubfolder: "sub" };
+  const withOv = store.createRun({ projectId: p.id, label: "a", overrides });
+  const without = store.createRun({ projectId: p.id, label: "b" });
+  assert.deepEqual(withOv.overrides, overrides);
+  assert.deepEqual(store.getRun(withOv.id).overrides, overrides);
+  assert.equal(store.getRun(without.id).overrides, null);
+  const listed = store.listRuns();
+  assert.deepEqual(listed[0].overrides, overrides);
+  assert.equal(listed[1].overrides, null);
+  assert.equal("overrides_json" in store.getRun(withOv.id), false);
+  assert.deepEqual(store.nextQueuedRun().overrides, overrides);
+  db.close();
+});
+
 test("secrets: set/get round-trips, unknown is null, set upserts, delete removes", () => {
   const { db, store } = setup();
   assert.equal(store.getSecret("drive.token"), null);

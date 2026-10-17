@@ -82,9 +82,9 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
   app.post("/api/runs", async (request, reply) => {
     const parsed = parseOr400(createRunSchema, request.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
-    const { projectId, label } = parsed.data;
+    const { projectId, label, overrides } = parsed.data;
     if (!store.getProject(projectId)) return reply.code(404).send({ error: "Project not found" });
-    return reply.code(201).send({ run: store.createRun({ projectId, label: label ?? null }) });
+    return reply.code(201).send({ run: store.createRun({ projectId, label: label ?? null, overrides }) });
   });
 
   app.get("/api/runs", async () => ({ runs: store.listRuns() }));
