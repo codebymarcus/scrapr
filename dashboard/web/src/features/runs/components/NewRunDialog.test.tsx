@@ -17,8 +17,34 @@ const json = (body: unknown, status = 200) =>
   });
 
 const projects = [
-  makeProject({ id: 1, name: "Alpha" }),
-  makeProject({ id: 2, name: "Beta" }),
+  makeProject({
+    id: 1,
+    name: "Alpha",
+    recipe: { name: "alpha", contentType: "text" },
+  }),
+  makeProject({
+    id: 2,
+    name: "Beta",
+    recipe: { name: "beta", contentType: "text" },
+  }),
+  makeProject({
+    id: 3,
+    name: "Gallery",
+    recipe: {
+      name: "gallery",
+      contentType: "image",
+      output: {
+        drive: true,
+        driveFolder: "folder-from-recipe",
+        driveSubfolder: "sub-from-recipe",
+      },
+    },
+  }),
+  makeProject({
+    id: 4,
+    name: "Plain images",
+    recipe: { name: "plain", contentType: "image" },
+  }),
 ];
 
 function setup(
@@ -195,5 +221,96 @@ describe("NewRunDialog", () => {
       "Project not found",
     );
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  describe("Drive overrides", () => {
+    it("shows the Drive fields prefilled from an image project's recipe", async () => {
+      setup();
+
+      await pickProject("Gallery");
+
+      expect(screen.getByRole("switch", { name: "Upload to Drive" })).toBeChecked();
+      expect(screen.getByLabelText("Folder ID")).toHaveValue("folder-from-recipe");
+      expect(screen.getByLabelText("Subfolder name")).toHaveValue("sub-from-recipe");
+    });
+
+    it("defaults to off and blank for an image recipe without Drive output", async () => {
+      setup();
+
+      await pickProject("Plain images");
+
+      expect(
+        screen.getByRole("switch", { name: "Upload to Drive" }),
+      ).not.toBeChecked();
+      expect(screen.getByLabelText("Folder ID")).toHaveValue("");
+      expect(screen.getByLabelText("Subfolder name")).toHaveValue("");
+    });
+
+    it("shows no Drive fields for a text project", async () => {
+      setup();
+
+      await pickProject("Gallery");
+      await pickProject("Alpha");
+
+      expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Folder ID")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Subfolder name")).not.toBeInTheDocument();
+    });
+
+    it("posts the toggle and the folder id the user set", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Plain images");
+      await userEvent.click(
+        screen.getByRole("switch", { name: "Upload to Drive" }),
+      );
+      await userEvent.type(screen.getByLabelText("Folder ID"), "abc123");
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(writes()[0]?.body).toEqual({
+        projectId: 4,
+        overrides: { drive: true, driveFolder: "abc123" },
+      });
+    });
+
+    it("omits blank folder fields so the recipe values are not clobbered", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Gallery");
+      await userEvent.clear(screen.getByLabelText("Folder ID"));
+      await userEvent.clear(screen.getByLabelText("Subfolder name"));
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+      expect(body.overrides).toEqual({ drive: true });
+      expect(body.overrides).not.toHaveProperty("driveFolder");
+      expect(body.overrides).not.toHaveProperty("driveSubfolder");
+    });
+
+    it("treats a whitespace-only folder id as blank", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Gallery");
+      await userEvent.clear(screen.getByLabelText("Folder ID"));
+      await userEvent.type(screen.getByLabelText("Folder ID"), "   ");
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+      expect(body.overrides).not.toHaveProperty("driveFolder");
+    });
+
+    it("sends no overrides at all for a text project", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Gallery");
+      await pickProject("Alpha");
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(writes()[0]?.body).toEqual({ projectId: 1 });
+    });
   });
 });

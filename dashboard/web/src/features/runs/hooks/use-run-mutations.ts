@@ -3,6 +3,7 @@ import { dashboardClient } from "@/lib/api-client";
 import { ApiError } from "@/lib/http/api-error";
 import type { ApiClient } from "@/lib/http/api-client";
 import { createRun, enqueueItems, importList } from "../api/runs-api";
+import type { CreateRunInput } from "../api/runs-api";
 import { runKeys } from "./runs-keys";
 
 /**
@@ -37,11 +38,12 @@ async function settleConflict<T extends object>(
 export function useCreateRun(client: ApiClient = dashboardClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { projectId: number; label?: string }) =>
+    mutationFn: (input: CreateRunInput) =>
       createRun(
         {
           projectId: input.projectId,
           ...(input.label ? { label: input.label } : {}),
+          ...(input.overrides ? { overrides: input.overrides } : {}),
         },
         client,
       ),

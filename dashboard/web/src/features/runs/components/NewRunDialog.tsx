@@ -10,6 +10,7 @@ import { useProjects } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Run } from "@/lib/schemas";
+import type { RunOverrides } from "../api/runs-api";
 import { useCreateRun, useEnqueue } from "../hooks/use-run-mutations";
 import { describeInvalidLines, parseUrlList } from "../url-list";
 import { projectOptions } from "./project-options";
@@ -42,10 +43,41 @@ export function NewRunDialog({
   );
   const [label, setLabel] = useState("");
   const [urlText, setUrlText] = useState("");
+  // Drive edits the user has made for the selected project; `null` means
+  // "untouched", so the value falls back to the project's recipe default.
+  const [driveEdit, setDriveEdit] = useState<boolean | null>(null);
+  const [folderEdit, setFolderEdit] = useState<string | null>(null);
+  const [subfolderEdit, setSubfolderEdit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Set once the run exists, so a failed enqueue can be retried without
   // creating a second run.
   const [createdRun, setCreatedRun] = useState<Run | null>(null);
+
+  const selectedProject = projectsQuery.data?.find(
+    (project) => String(project.id) === projectId,
+  );
+  const recipe = selectedProject?.recipe;
+  const showDrive = recipe?.contentType === "image";
+  const drive = driveEdit ?? recipe?.output?.drive ?? false;
+  const folder = folderEdit ?? recipe?.output?.driveFolder ?? "";
+  const subfolder = subfolderEdit ?? recipe?.output?.driveSubfolder ?? "";
+
+  function chooseProject(value: string) {
+    setProjectId(value);
+    setDriveEdit(null);
+    setFolderEdit(null);
+    setSubfolderEdit(null);
+  }
+
+  // The server applies only the keys that are present, so a blank folder must
+  // be omitted rather than sent as "" (which would erase the recipe's folder).
+  function buildOverrides(): RunOverrides | undefined {
+    if (!showDrive) return undefined;
+    const overrides: RunOverrides = { drive };
+    if (folder.trim()) overrides.driveFolder = folder.trim();
+    if (subfolder.trim()) overrides.driveSubfolder = subfolder.trim();
+    return overrides;
+  }
 
   const busy = createRun.isPending || enqueue.isPending;
 
@@ -64,9 +96,11 @@ export function NewRunDialog({
     let run = createdRun;
     if (!run) {
       try {
+        const overrides = buildOverrides();
         run = await createRun.mutateAsync({
           projectId: Number(projectId),
           label: label.trim(),
+          ...(overrides ? { overrides } : {}),
         });
       } catch (failure) {
         setError(messageOf(failure));
@@ -115,7 +149,7 @@ export function NewRunDialog({
           id={`${ids}-project`}
           value={projectId}
           options={projectOptions(projectsQuery)}
-          onChange={setProjectId}
+          onChange={chooseProject}
           disabled={createdRun !== null}
         />
       </Field>
@@ -145,6 +179,41 @@ export function NewRunDialog({
           placeholder={"https://example.com/chapter-1\nhttps://example.com/chapter-2"}
         />
       </Field>
+      {showDrive ? (
+        <div className={styles.driveSection}>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              role="switch"
+              className={styles.switch}
+              checked={drive}
+              disabled={createdRun !== null}
+              onChange={(event) => setDriveEdit(event.target.checked)}
+            />
+            <Text as="span" variant="body">
+              Upload to Drive
+            </Text>
+          </label>
+          <Field htmlFor={`${ids}-drive-folder`} label="Folder ID">
+            <TextInput
+              id={`${ids}-drive-folder`}
+              value={folder}
+              onChange={setFolderEdit}
+              placeholder="Google Drive folder ID"
+              disabled={createdRun !== null}
+            />
+          </Field>
+          <Field htmlFor={`${ids}-drive-subfolder`} label="Subfolder name">
+            <TextInput
+              id={`${ids}-drive-subfolder`}
+              value={subfolder}
+              onChange={setSubfolderEdit}
+              placeholder="Created inside the folder"
+              disabled={createdRun !== null}
+            />
+          </Field>
+        </div>
+      ) : null}
       {error ? (
         <Text variant="small" tone="negative" role="alert" className={styles.error}>
           {error}

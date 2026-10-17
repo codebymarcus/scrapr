@@ -49,8 +49,21 @@ const importResponseSchema = z.union([
 
 export type ImportResponse = z.infer<typeof importResponseSchema>;
 
+/** Per-run Drive settings; only keys that are present override the recipe. */
+export type RunOverrides = {
+  drive?: boolean;
+  driveFolder?: string;
+  driveSubfolder?: string;
+};
+
+export type CreateRunInput = {
+  projectId: number;
+  label?: string;
+  overrides?: RunOverrides;
+};
+
 export async function createRun(
-  input: { projectId: number; label?: string },
+  input: CreateRunInput,
   client: ApiClient = dashboardClient,
 ): Promise<Run> {
   const { run } = await client.post("/api/runs", {

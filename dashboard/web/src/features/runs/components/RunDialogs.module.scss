@@ -30,3 +30,24 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.driveSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.switch {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
