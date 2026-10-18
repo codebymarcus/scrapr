@@ -19,6 +19,7 @@ import type { RunContentType, RunProgress } from "../types";
 import { runName } from "../utils";
 import styles from "./RunCard.module.scss";
 import { RunConsole } from "./RunConsole";
+import { RunItemsPanel } from "./RunItemsPanel";
 
 // Poll the run detail at this cadence while the live socket is down.
 const POLL_INTERVAL_MS = 3000;
@@ -60,8 +61,11 @@ export function RunCard({
     enabled: isRunning,
     socketFactory,
   });
-  const detail = useRun(isRunning ? run.id : null, client, {
-    refetchInterval: connected ? false : POLL_INTERVAL_MS,
+  // The Items panel also needs the detail, in any state, once expanded.
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const itemsId = useId();
+  const detail = useRun(isRunning || itemsOpen ? run.id : null, client, {
+    refetchInterval: isRunning && !connected ? POLL_INTERVAL_MS : false,
   });
   const polledState = detail.data?.run.state;
   useEffect(() => {
@@ -149,9 +153,16 @@ export function RunCard({
             Stop
           </Button>
         ) : null}
+        <Button
+          className={styles.itemsToggle}
+          aria-expanded={itemsOpen}
+          aria-controls={itemsId}
+          onClick={() => setItemsOpen((open) => !open)}
+        >
+          Items
+        </Button>
         {isRunning ? (
           <Button
-            className={styles.consoleToggle}
             aria-expanded={consoleOpen}
             aria-controls={consoleId}
             onClick={() => setConsoleOpen((open) => !open)}
@@ -198,6 +209,18 @@ export function RunCard({
           </>
         ) : null}
       </div>
+
+      {itemsOpen ? (
+        <div id={itemsId} className={styles.items}>
+          <RunItemsPanel
+            runId={run.id}
+            items={detail.data?.items ?? []}
+            contentType={contentType ?? "text"}
+            isRunning={isRunning}
+            client={client}
+          />
+        </div>
+      ) : null}
 
       {isRunning && consoleOpen ? (
         <div id={consoleId} className={styles.console}>

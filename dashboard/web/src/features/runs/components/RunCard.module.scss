@@ -64,18 +64,18 @@
   }
 }
 
-.consoleToggle {
+// Items is on every card, so it carries the push to the right; Console (when
+// running) and Delete (when not) follow it.
+.itemsToggle {
   margin-left: auto;
 }
 
-.console {
+.console,
+.items {
   min-width: 0;
 }
 
-// Delete sits apart from the primary actions (push to the right when it's the
-// only action, e.g. a finished run).
 .delete {
-  margin-left: auto;
   color: var(--color-negative);
 }
 

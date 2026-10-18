@@ -354,4 +354,49 @@ describe("RunCard", () => {
       expect(screen.queryByRole("log")).not.toBeInTheDocument();
     });
   });
+
+  describe("items panel", () => {
+    it("offers an Items toggle on a non-running card and fetches nothing while collapsed", () => {
+      const { client, fetchFn } = makeClient();
+      renderCard({ run: makeRun({ id: 2, state: "done" }), client });
+
+      const toggle = screen.getByRole("button", { name: /items/i });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it("fetches the detail when expanded and renders the panel", async () => {
+      const run = makeRun({ id: 2, state: "done" });
+      const { client, fetchFn } = makeClient(() =>
+        json({
+          run,
+          items: [makeItem({ id: 1, run_id: 2, name: "Chapter One" })],
+        }),
+      );
+      renderCard({ run, client, contentType: "text" });
+
+      const toggle = screen.getByRole("button", { name: /items/i });
+      await userEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(await screen.findByText("Chapter One")).toBeInTheDocument();
+      expect(fetchFn).toHaveBeenCalledWith(
+        "http://test.local/api/runs/2",
+        expect.anything(),
+      );
+
+      await userEvent.click(toggle);
+      expect(screen.queryByText("Chapter One")).not.toBeInTheDocument();
+    });
+
+    it("shows both the Items and Console toggles on a running card", () => {
+      renderCard({ run: makeRun({ id: 3, state: "running" }) });
+      expect(
+        screen.getByRole("button", { name: /items/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /console/i }),
+      ).toBeInTheDocument();
+    });
+  });
 });
