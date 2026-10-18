@@ -63,6 +63,24 @@ export function createStore(db) {
     setItemResult: db.prepare(
       "UPDATE run_items SET saved = ?, total = ?, needs_review = ? WHERE id = ?",
     ),
+    setItemOutputName: db.prepare("UPDATE run_items SET output_name = ? WHERE id = ?"),
+    setItemUpload: db.prepare(
+      "UPDATE run_items SET uploaded_at = ?, drive_link = ? WHERE id = ?",
+    ),
+    getItem: db.prepare("SELECT * FROM run_items WHERE id = ?"),
+    deleteItem: db.prepare("DELETE FROM run_items WHERE id = ?"),
+    // Back to a re-runnable state: blank status (skipReason crawls it), no
+    // result, no failure reason, no upload state. output_name is kept.
+    resetItem: db.prepare(
+      `UPDATE run_items SET status = '', reason = NULL, saved = NULL,
+         uploaded_at = NULL, drive_link = NULL
+       WHERE id = ? AND run_id = ?`,
+    ),
+    resetFailedItems: db.prepare(
+      `UPDATE run_items SET status = '', reason = NULL, saved = NULL,
+         uploaded_at = NULL, drive_link = NULL
+       WHERE run_id = ? AND status = 'retry'`,
+    ),
 
     getSecret: db.prepare("SELECT value FROM secrets WHERE key = ?"),
     upsertSecret: db.prepare(
@@ -151,8 +169,27 @@ export function createStore(db) {
     listItems(runId) {
       return q.listItems.all(runId);
     },
-    setItemResult(id, { saved, total, needsReview }) {
+    setItemResult(id, { saved, total, needsReview, outputName }) {
       q.setItemResult.run(saved, total, needsReview ? 1 : 0, id);
+      if (outputName !== undefined) q.setItemOutputName.run(outputName, id);
+    },
+    setItemUpload(id, { uploadedAt, driveLink }) {
+      q.setItemUpload.run(uploadedAt ?? null, driveLink ?? null, id);
+    },
+    getItem(id) {
+      return q.getItem.get(id) ?? null;
+    },
+    deleteItem(id) {
+      q.deleteItem.run(id);
+    },
+    // Make rows re-runnable. With { itemId }, reset just that row (whatever its
+    // status); otherwise every failed ("retry") row of the run. done/skip rows
+    // are left alone. Returns how many rows were reset.
+    resetItemsForRetry(runId, { itemId } = {}) {
+      if (itemId !== undefined && itemId !== null) {
+        return q.resetItem.run(itemId, runId).changes;
+      }
+      return q.resetFailedItems.run(runId).changes;
     },
     nextQueuedRun() {
       return runFromRow(q.nextQueuedRun.get());

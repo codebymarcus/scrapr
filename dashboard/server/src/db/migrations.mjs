@@ -48,6 +48,14 @@ export const MIGRATIONS = [
     id: "003_run_overrides",
     sql: `ALTER TABLE runs ADD COLUMN overrides_json TEXT;`,
   },
+  {
+    id: "004_item_upload",
+    sql: `
+      ALTER TABLE run_items ADD COLUMN output_name TEXT;
+      ALTER TABLE run_items ADD COLUMN uploaded_at TEXT;
+      ALTER TABLE run_items ADD COLUMN drive_link TEXT;
+    `,
+  },
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

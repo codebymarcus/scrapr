@@ -194,3 +194,97 @@ test("addItems stores a name from { url, name } rows; strings get a null name", 
     [["https://a", "Alpha"], ["https://b", null], ["https://c", null]],
   );
 });
+
+function itemsSetup(urls) {
+  const { store } = setup();
+  const p = store.createProject({ name: "P", recipe: {} });
+  const run = store.createRun({ projectId: p.id });
+  store.addItems(run.id, urls);
+  return { store, run, items: store.listItems(run.id) };
+}
+
+test("setItemResult persists outputName when given and leaves it alone when omitted", () => {
+  const { store, run, items } = itemsSetup(["https://a"]);
+  store.setItemResult(items[0].id, { saved: 2, total: 3, needsReview: false, outputName: "alpha" });
+  let row = store.listItems(run.id)[0];
+  assert.equal(row.output_name, "alpha");
+  assert.equal(row.saved, 2);
+  store.setItemResult(items[0].id, { saved: 3, total: 3, needsReview: true });
+  row = store.listItems(run.id)[0];
+  assert.equal(row.output_name, "alpha");
+  assert.equal(row.saved, 3);
+  assert.equal(row.needs_review, 1);
+});
+
+test("setItemUpload sets uploaded_at and drive_link", () => {
+  const { store, items } = itemsSetup(["https://a"]);
+  assert.equal(store.getItem(items[0].id).uploaded_at, null);
+  store.setItemUpload(items[0].id, { uploadedAt: "2026-01-01T00:00:00.000Z", driveLink: "https://drive/x" });
+  const row = store.getItem(items[0].id);
+  assert.equal(row.uploaded_at, "2026-01-01T00:00:00.000Z");
+  assert.equal(row.drive_link, "https://drive/x");
+});
+
+test("getItem returns the full row incl. new columns, or null", () => {
+  const { store, run, items } = itemsSetup([{ url: "https://a", name: "Alpha" }]);
+  store.setItemStatus(items[0].id, "done");
+  store.setItemResult(items[0].id, { saved: 1, total: 1, needsReview: false, outputName: "alpha" });
+  const row = store.getItem(items[0].id);
+  assert.equal(row.run_id, run.id);
+  assert.equal(row.url, "https://a");
+  assert.equal(row.name, "Alpha");
+  assert.equal(row.status, "done");
+  assert.equal(row.saved, 1);
+  assert.equal(row.output_name, "alpha");
+  assert.equal(row.uploaded_at, null);
+  assert.equal(row.drive_link, null);
+  assert.equal(store.getItem(9999), null);
+});
+
+test("deleteItem removes one item and leaves the others", () => {
+  const { store, run, items } = itemsSetup(["https://a", "https://b"]);
+  store.deleteItem(items[0].id);
+  assert.equal(store.getItem(items[0].id), null);
+  assert.deepEqual(store.listItems(run.id).map((i) => i.url), ["https://b"]);
+});
+
+test("resetItemsForRetry({ itemId }) resets just that row", () => {
+  const { store, items } = itemsSetup(["https://a", "https://b"]);
+  for (const it of items) {
+    store.setItemStatus(it.id, "retry");
+    store.setItemReason(it.id, "boom");
+    store.setItemResult(it.id, { saved: 1, total: 2, needsReview: false });
+    store.setItemUpload(it.id, { uploadedAt: "t", driveLink: "l" });
+  }
+  store.resetItemsForRetry(items[0].run_id, { itemId: items[0].id });
+  const a = store.getItem(items[0].id);
+  assert.equal(a.status, "");
+  assert.equal(a.reason, null);
+  assert.equal(a.saved, null);
+  assert.equal(a.uploaded_at, null);
+  assert.equal(a.drive_link, null);
+  const b = store.getItem(items[1].id);
+  assert.equal(b.status, "retry");
+  assert.equal(b.reason, "boom");
+  assert.equal(b.saved, 1);
+  assert.equal(b.drive_link, "l");
+});
+
+test("resetItemsForRetry(runId) resets failed rows and leaves done/skip untouched", () => {
+  const { store, run, items } = itemsSetup(["https://a", "https://b", "https://c", "https://d"]);
+  const [failed, done, skip, blank] = items;
+  store.setItemStatus(failed.id, "retry");
+  store.setItemReason(failed.id, "boom");
+  store.setItemStatus(done.id, "done");
+  store.setItemResult(done.id, { saved: 2, total: 2, needsReview: false });
+  store.setItemUpload(done.id, { uploadedAt: "t", driveLink: "l" });
+  store.setItemStatus(skip.id, "skip");
+  store.resetItemsForRetry(run.id);
+  assert.equal(store.getItem(failed.id).status, "");
+  assert.equal(store.getItem(failed.id).reason, null);
+  assert.equal(store.getItem(done.id).status, "done");
+  assert.equal(store.getItem(done.id).saved, 2);
+  assert.equal(store.getItem(done.id).drive_link, "l");
+  assert.equal(store.getItem(skip.id).status, "skip");
+  assert.equal(store.getItem(blank.id).status, "");
+});
