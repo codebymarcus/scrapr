@@ -131,7 +131,7 @@ export class DriveUploader {
     try {
       const res = await this.drive.files.list({
         q: q.join(" and "),
-        fields: "files(id,name)",
+        fields: "files(id,name,webViewLink)",
         pageSize: 1,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true

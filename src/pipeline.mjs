@@ -16,6 +16,7 @@ import { resolveTargets, resolveRecordBase } from "./naming.mjs";
 import { PageCache } from "./cache.mjs";
 import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import sharp from "sharp";
+import path from "node:path";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
@@ -162,8 +163,12 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     const outputs = await processor.process(captured);
     for (const packager of packagers) await packager.write(outputs, finalTargets, metadata);
 
-    // Upload to Drive; a failed upload → retry, keep local files (unchanged).
+    // Upload to Drive. A failed upload does NOT fail the scrape: the files are
+    // kept locally and the job still counts as complete (uploaded:false lets the
+    // caller surface "not uploaded" instead of re-scraping).
     let uploaded = false;
+    let driveLink = null;
+    let uploadError = null;
     if (uploader) {
       const uploadCbz = config.cbz && config.driveOnly !== "pdf";
       const uploadPdf = config.pdf && config.driveOnly !== "cbz";
@@ -172,12 +177,13 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
       } else {
         logger.step("→ uploading to Drive");
         try {
-          if (uploadCbz) await uploader.uploadFile(finalTargets.cbzPath);
-          if (uploadPdf) await uploader.uploadFile(finalTargets.pdfPath);
+          const cbzMeta = uploadCbz ? await uploader.uploadFile(finalTargets.cbzPath) : null;
+          const pdfMeta = uploadPdf ? await uploader.uploadFile(finalTargets.pdfPath) : null;
           uploaded = true;
+          driveLink = cbzMeta?.webViewLink || pdfMeta?.webViewLink || null;
         } catch (e) {
-          logger.error(`Drive upload failed: ${e?.message || e}`);
-          return { saved: outputs.length, total: r.total, complete: false, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
+          uploadError = String(e?.message || e);
+          logger.error(`Drive upload failed: ${uploadError} — local files kept`);
         }
       }
     }
@@ -189,7 +195,12 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     }
 
     if (cache) await cache.clear().catch(() => {});
-    return { saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count, usedStrategy: r.usedStrategy, attempts: r.attempts, contentType };
+    return {
+      saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count,
+      usedStrategy: r.usedStrategy, attempts: r.attempts, contentType,
+      outputName: path.basename(finalTargets.outDir), uploaded, driveLink, uploadError,
+      cbz: !!config.cbz, pdf: !!config.pdf
+    };
   } finally {
     logger.info(`bandwidth: ${meter.summary(config.costPerGb)}`);
   }
@@ -370,7 +381,10 @@ export class BatchRunner {
       // Persist outcome immediately so an interrupted batch is resumable.
       if (source.hasStatus) {
         source.setStatus(job, complete ? "done" : "retry");
-        source.setReason?.(job, complete ? "" : (code || "FAILED"));
+        // Status/breaker follow the SCRAPE outcome; an upload-only failure is still
+        // "done" (files kept locally) with the pending upload noted in the reason.
+        const reason = !complete ? (code || "FAILED") : (rec.uploadError ? `upload pending: ${rec.uploadError}` : "");
+        source.setReason?.(job, reason);
       }
 
       this._onItem?.(rec);

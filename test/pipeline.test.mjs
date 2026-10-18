@@ -426,3 +426,81 @@ test("_runJobs calls deps.onItem with each item's result record", async () => {
   assert.equal(seen[0].url, "https://x/1");
   assert.equal(seen[0].ok, true);
 });
+
+// ---- scrape outcome vs upload outcome ----
+
+async function uploadScenario({ uploader, cleanup = false }) {
+  const { mkdtemp, writeFile, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = (await import("node:path")).default;
+  const base = await mkdtemp(path.join(tmpdir(), "scaper-up-"));
+  const config = { cache: false, cleanup, drive: true, cbz: true, pdf: false, batch: true, out: base, costPerGb: null };
+  const cbzPath = path.join(base, "My Title.cbz");
+  const processor = { process: async () => [{ name: "001.jpg", buffer: Buffer.from("x") }] };
+  const packagers = [{ write: async () => { await writeFile(cbzPath, "cbz"); } }];
+  const orchestrator = { run: async () => ({ status: "success", usedStrategy: "current", downloaded: 1, total: 1, attempts: [], metadata: { title: "My Title" } }) };
+  const r = await scrapeJob({}, { url: "https://x/read", name: null }, config, processor, packagers, uploader, noopLogger, orchestrator);
+  const stillThere = await stat(cbzPath).then(() => true, () => false);
+  return { r, stillThere };
+}
+
+test("scrapeJob: scrape ok + upload fails -> complete:true, uploaded:false, local files kept", async () => {
+  const uploader = { uploadFile: async () => { throw new Error("quota exceeded"); } };
+  const { r, stillThere } = await uploadScenario({ uploader, cleanup: true });
+  assert.equal(r.complete, true, "an upload failure is not a scrape failure");
+  assert.equal(r.uploaded, false);
+  assert.equal(r.driveLink, null);
+  assert.equal(r.outputName, "My Title");
+  assert.equal(r.cbz, true);
+  assert.equal(r.pdf, false);
+  assert.match(r.uploadError, /quota exceeded/);
+  assert.equal(stillThere, true, "local files are not deleted when the upload failed");
+});
+
+test("scrapeJob: scrape ok + upload ok -> uploaded:true with driveLink and outputName", async () => {
+  const uploader = { uploadFile: async () => ({ id: "F1", name: "My Title.cbz", webViewLink: "https://drive/F1" }) };
+  const { r } = await uploadScenario({ uploader });
+  assert.equal(r.complete, true);
+  assert.equal(r.uploaded, true);
+  assert.equal(r.driveLink, "https://drive/F1");
+  assert.equal(r.outputName, "My Title");
+  assert.equal(r.saved, 1);
+});
+
+test("scrapeJob: no uploader -> uploaded:false, driveLink null, outputName still reported", async () => {
+  const { r } = await uploadScenario({ uploader: null });
+  assert.equal(r.complete, true);
+  assert.equal(r.uploaded, false);
+  assert.equal(r.driveLink, null);
+  assert.equal(r.outputName, "My Title");
+});
+
+test("_runJobs: an upload-only failure is recorded done, not retry, and is not a breaker failure", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0, maxDomainFailures: 1 }, noopLogger);
+  const statuses = {}; const reasons = {}; const scraped = [];
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (s, job) => { scraped.push(job.url); return { saved: 3, total: 3, complete: true, uploaded: false, uploadError: "quota exceeded", outputName: "T", driveLink: null }; };
+  const source = { hasStatus: true, setStatus: (j, v) => { statuses[j.url] = v; }, setReason: (j, v) => { reasons[j.url] = v; } };
+  const jobs = [{ url: "https://d.co/1", status: "", row: 1 }, { url: "https://d.co/2", status: "", row: 2 }];
+  const results = await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: {}, breaker: new CircuitBreaker(1, { base: 0 }) });
+  assert.deepEqual(scraped, ["https://d.co/1", "https://d.co/2"], "breaker (threshold 1) did not trip on an upload failure");
+  assert.equal(statuses["https://d.co/1"], "done");
+  assert.match(reasons["https://d.co/1"], /upload pending/);
+  assert.match(reasons["https://d.co/1"], /quota exceeded/);
+  assert.equal(results[0].ok, true);
+  assert.equal(results[0].uploaded, false);
+  assert.equal(results[0].outputName, "T");
+  assert.equal(skipReason(statuses["https://d.co/1"]), "already done", "a re-run skips it");
+});
+
+test("_runJobs: a fully uploaded success keeps an empty reason", async () => {
+  const runner = new BatchRunner({ itemDelay: 0, jitter: 0 }, noopLogger);
+  const reasons = {};
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async () => ({ saved: 3, total: 3, complete: true, uploaded: true, driveLink: "https://drive/F1", outputName: "T" });
+  const source = { hasStatus: true, setStatus() {}, setReason: (j, v) => { reasons[j.url] = v; } };
+  await runner._runJobs({ jobs: [{ url: "https://d.co/1", status: "", row: 1 }], source, session: {}, processor: {}, packagers: [], uploader: {} });
+  assert.equal(reasons["https://d.co/1"], "");
+});

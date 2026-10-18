@@ -1,7 +1,7 @@
 // DriveUploader retry behavior: transient-error classification + backoff.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DriveUploader, isRetryable } from "../src/drive.mjs";
@@ -110,4 +110,44 @@ test("create: without driveAuth and without files, still throws the actionable C
       /Drive credentials not found/
     );
   });
+});
+
+// ---- DriveUploader.uploadFile: returns a Drive link on both paths ----
+
+function tmpFile(name) {
+  const dir = mkdtempSync(path.join(tmpdir(), "drive-up-"));
+  const p = path.join(dir, name);
+  writeFileSync(p, "data");
+  return { dir, p };
+}
+
+test("uploadFile: the 'already there' branch returns metadata incl. webViewLink, without creating", async () => {
+  const { dir, p } = tmpFile("Series 1.cbz");
+  try {
+    const calls = { list: [], create: 0 };
+    const drive = { files: {
+      list: async (args) => { calls.list.push(args); return { data: { files: [{ id: "F1", name: "Series 1.cbz", webViewLink: "https://drive/F1" }] } }; },
+      create: async () => { calls.create++; return { data: {} }; }
+    } };
+    const up = new DriveUploader(drive, null, noopLogger);
+    const res = await up.uploadFile(p);
+    assert.equal(res.id, "F1");
+    assert.equal(res.webViewLink, "https://drive/F1");
+    assert.equal(calls.create, 0, "no create when it already exists");
+    assert.match(calls.list[0].fields, /webViewLink/, "list asks Drive for the link");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("uploadFile: the create path still returns metadata incl. webViewLink", async () => {
+  const { dir, p } = tmpFile("Series 2.cbz");
+  try {
+    const drive = { files: {
+      list: async () => ({ data: { files: [] } }),
+      create: async (args) => { for await (const _ of args.media.body); return { data: { id: "N1", name: "Series 2.cbz", webViewLink: "https://drive/N1" } }; }
+    } };
+    const up = new DriveUploader(drive, null, noopLogger);
+    const res = await up.uploadFile(p);
+    assert.equal(res.id, "N1");
+    assert.equal(res.webViewLink, "https://drive/N1");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
