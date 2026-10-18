@@ -82,7 +82,15 @@ export function createRunManager({
       const onItem = (rec) => {
         try {
           const review = needsReview(rec, recipe);
-          store.setItemResult(rec.id, { saved: rec.saved, total: rec.total, needsReview: review });
+          store.setItemResult(rec.id, {
+            saved: rec.saved,
+            total: rec.total,
+            needsReview: review,
+            outputName: rec.outputName,
+          });
+          if (rec.uploaded) {
+            store.setItemUpload(rec.id, { uploadedAt: now(), driveLink: rec.driveLink });
+          }
           safeEmit(runId, {
             type: "item",
             id: rec.id,
@@ -91,6 +99,9 @@ export function createRunManager({
             total: rec.total,
             ok: rec.ok,
             needsReview: review,
+            outputName: rec.outputName ?? null,
+            uploaded: !!rec.uploaded,
+            driveLink: rec.driveLink ?? null,
           });
         } catch (e) {
           try {

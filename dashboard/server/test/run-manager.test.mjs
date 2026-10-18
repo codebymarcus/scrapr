@@ -129,6 +129,35 @@ test("onItem stores result, flags zero-saved as needs_review, and emits an item 
   db.close();
 });
 
+test("onItem persists output name + upload state and emits them on the item event", async () => {
+  const { db, store, emit, makeRun, events } = setup();
+  const run = makeRun(["https://e.com/1", "https://e.com/2"]);
+  const [a, b] = store.listItems(run.id);
+  const factory = fakeFactory(async (_r, deps) => {
+    deps.onItem({ id: a.id, url: a.url, saved: 3, total: 3, ok: true, outputName: "Issue 1", uploaded: true, driveLink: "http://d/1" });
+    deps.onItem({ id: b.id, url: b.url, saved: 2, total: 2, ok: true, outputName: "Issue 2", uploaded: false, driveLink: null });
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  await mgr.start(run.id);
+  const ia = store.getItem(a.id);
+  assert.equal(ia.output_name, "Issue 1");
+  assert.ok(ia.uploaded_at);
+  assert.equal(ia.drive_link, "http://d/1");
+  const ib = store.getItem(b.id);
+  assert.equal(ib.output_name, "Issue 2");
+  assert.ok(!ib.uploaded_at);
+  assert.ok(!ib.drive_link);
+  const itemEvents = events.filter((e) => e.ev.type === "item");
+  assert.equal(itemEvents[0].ev.outputName, "Issue 1");
+  assert.equal(itemEvents[0].ev.uploaded, true);
+  assert.equal(itemEvents[0].ev.driveLink, "http://d/1");
+  assert.equal(itemEvents[1].ev.outputName, "Issue 2");
+  assert.equal(itemEvents[1].ev.uploaded, false);
+  assert.equal(itemEvents[1].ev.driveLink, null);
+  db.close();
+});
+
 test("a throwing onItem body is swallowed and does not crash the run", async () => {
   const { db, store, emit, makeRun } = setup();
   const run = makeRun(["https://e.com/1"]);
