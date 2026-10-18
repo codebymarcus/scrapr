@@ -347,3 +347,31 @@ test("delete run: 409 while running, 404 unknown, 400 bad id", async () => {
   assert.equal((await app.inject({ method: "DELETE", url: "/api/runs/abc" })).statusCode, 400);
   await teardown(ctx);
 });
+
+test("delete item: removes just that row; 409 while running, 404 unknown, 400 bad id", async () => {
+  const ctx = setup();
+  const { app, project, store } = ctx;
+  const { body } = await createRun(app, project.id);
+  const id = body.run.id;
+  store.addItems(id, ["https://example.com/a", "https://example.com/b"]);
+  const [a, b] = store.listItems(id);
+
+  const del = await app.inject({ method: "DELETE", url: `/api/runs/${id}/items/${a.id}` });
+  assert.equal(del.statusCode, 200);
+  assert.deepEqual(del.json(), { deleted: true });
+  assert.deepEqual(store.listItems(id).map((i) => i.id), [b.id]);
+
+  // unknown item / unknown run / item belonging to another run
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/runs/${id}/items/9999` })).statusCode, 404);
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/runs/9999/items/${b.id}` })).statusCode, 404);
+  const other = (await createRun(app, project.id)).body.run.id;
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/runs/${other}/items/${b.id}` })).statusCode, 404);
+  assert.ok(store.getItem(b.id)); // still there
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/runs/${id}/items/abc` })).statusCode, 400);
+
+  store.setRunState(id, "running");
+  const running = await app.inject({ method: "DELETE", url: `/api/runs/${id}/items/${b.id}` });
+  assert.equal(running.statusCode, 409);
+  assert.ok(store.getItem(b.id)); // not deleted
+  await teardown(ctx);
+});

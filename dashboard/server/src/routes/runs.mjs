@@ -21,6 +21,15 @@ function parseId(raw) {
   return Number.isSafeInteger(id) ? id : null;
 }
 
+// Parse the :id and :itemId params of an item route.
+function parseRunItemParams(params) {
+  const id = parseId(params.id);
+  if (id === null) return { error: "Run id must be a positive integer" };
+  const itemId = parseId(params.itemId);
+  if (itemId === null) return { error: "Item id must be a positive integer" };
+  return { id, itemId };
+}
+
 // Default per-run output directory. The run manager must write a run's
 // outputs here (or inject the same `runOutDir` into both) for results to show.
 export function defaultRunOutDir(run) {
@@ -222,8 +231,56 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
     }),
   );
 
-  // Start/stop are only exposed when a run manager is wired in.
+  // Remove one item from a run. Like deleting a run, a running run must be
+  // stopped first (409). The item must belong to the run in the URL.
+  app.delete("/api/runs/:id/items/:itemId", async (request, reply) => {
+    const parsed = parseRunItemParams(request.params);
+    if (parsed.error) return reply.code(400).send({ error: parsed.error });
+    const run = store.getRun(parsed.id);
+    if (!run) return reply.code(404).send({ error: "Run not found" });
+    const item = store.getItem(parsed.itemId);
+    if (!item || item.run_id !== run.id) return reply.code(404).send({ error: "Item not found" });
+    if (run.state === "running") {
+      return reply.code(409).send({ error: "Cannot remove items from a running run (stop it first)" });
+    }
+    store.deleteItem(item.id);
+    return { deleted: true };
+  });
+
+  // Start/stop/retry are only exposed when a run manager is wired in.
   if (runManager) {
+    // Re-queue a run after resetting failed rows (all, or just `itemId`) and hand
+    // it to the manager. Fire-and-forget like /start: the run executes in the
+    // background and progress arrives over the WebSocket.
+    function requeue(run, resetOpts, reply) {
+      if (run.state === "running") {
+        return reply.code(409).send({ error: "Cannot retry a running run (stop it first)" });
+      }
+      store.resetItemsForRetry(run.id, resetOpts);
+      store.setRunState(run.id, "queued");
+      Promise.resolve(runManager.start(run.id)).catch(() => {});
+      return { run: store.getRun(run.id) };
+    }
+
+    app.post(
+      "/api/runs/:id/retry",
+      withId(async (id, request, reply) => {
+        const run = store.getRun(id);
+        if (!run) return reply.code(404).send({ error: "Run not found" });
+        return requeue(run, {}, reply);
+      }),
+    );
+
+    app.post("/api/runs/:id/items/:itemId/retry", async (request, reply) => {
+      const parsed = parseRunItemParams(request.params);
+      if (parsed.error) return reply.code(400).send({ error: parsed.error });
+      const run = store.getRun(parsed.id);
+      if (!run) return reply.code(404).send({ error: "Run not found" });
+      const item = store.getItem(parsed.itemId);
+      if (!item || item.run_id !== run.id) return reply.code(404).send({ error: "Item not found" });
+      return requeue(run, { itemId: item.id }, reply);
+    });
+
     // Responds as soon as the run has been handed to the manager; the run itself
     // executes in the background (progress arrives over the WebSocket). If another
     // run is active the run stays queued and starts when the slot frees up.

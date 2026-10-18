@@ -119,6 +119,91 @@ test("wiring smoke: real store + fake runManager + hub registers the start route
   assert.ok(app.hasRoute({ method: "POST", url: "/api/runs/:id/start" }));
   assert.ok(app.hasRoute({ method: "POST", url: "/api/runs/:id/stop" }));
   assert.ok(app.hub);
+  assert.ok(app.hasRoute({ method: "POST", url: "/api/runs/:id/retry" }));
+  assert.ok(app.hasRoute({ method: "POST", url: "/api/runs/:id/items/:itemId/retry" }));
+  await app.close();
+  db.close();
+});
+
+function seedFailed(store, runId) {
+  store.addItems(runId, ["https://example.com/a", "https://example.com/b", "https://example.com/c"]);
+  const [a, b, c] = store.listItems(runId);
+  store.setItemStatus(a.id, "retry");
+  store.setItemStatus(b.id, "retry");
+  store.setItemStatus(c.id, "done");
+  return { a, b, c };
+}
+
+test("retry failed: resets only failed rows, queues + starts the run, returns it", async () => {
+  const { db, store, app, calls, makeRun } = setup();
+  const run = makeRun("done");
+  const { a, b, c } = seedFailed(store, run.id);
+  const res = await post(app, `/api/runs/${run.id}/retry`);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().run.id, run.id);
+  assert.deepEqual(calls.start, [run.id]);
+  assert.equal(store.getItem(a.id).status, "");
+  assert.equal(store.getItem(b.id).status, "");
+  assert.equal(store.getItem(c.id).status, "done");
+  await app.close();
+  db.close();
+});
+
+test("retry failed: run is re-queued before the manager is handed it", async () => {
+  const { db, store, app, makeRun } = setup();
+  const run = makeRun("failed");
+  seedFailed(store, run.id);
+  // The fake manager flips the run to "running" on start; capture what it saw.
+  let stateAtStart = null;
+  const origSet = store.setRunState.bind(store);
+  store.setRunState = (id, state, times) => {
+    if (state === "running") stateAtStart = store.getRun(id).state;
+    return origSet(id, state, times);
+  };
+  await post(app, `/api/runs/${run.id}/retry`);
+  assert.equal(stateAtStart, "queued");
+  await app.close();
+  db.close();
+});
+
+test("retry one: resets just that row, queues + starts the run", async () => {
+  const { db, store, app, calls, makeRun } = setup();
+  const run = makeRun("done");
+  const { a, b } = seedFailed(store, run.id);
+  const res = await post(app, `/api/runs/${run.id}/items/${a.id}/retry`);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().run.id, run.id);
+  assert.deepEqual(calls.start, [run.id]);
+  assert.equal(store.getItem(a.id).status, "");
+  assert.equal(store.getItem(b.id).status, "retry"); // other failed row untouched
+  await app.close();
+  db.close();
+});
+
+test("retry (all / one): 409 while running, manager not called, rows untouched", async () => {
+  const { db, store, app, calls, makeRun } = setup();
+  const run = makeRun("running");
+  const { a } = seedFailed(store, run.id);
+  assert.equal((await post(app, `/api/runs/${run.id}/retry`)).statusCode, 409);
+  assert.equal((await post(app, `/api/runs/${run.id}/items/${a.id}/retry`)).statusCode, 409);
+  assert.deepEqual(calls.start, []);
+  assert.equal(store.getItem(a.id).status, "retry");
+  await app.close();
+  db.close();
+});
+
+test("retry (all / one): 404 unknown run or item (incl. other run's item), 400 bad id", async () => {
+  const { db, store, app, calls, makeRun } = setup();
+  const run = makeRun("done");
+  const other = makeRun("done");
+  const { a } = seedFailed(store, run.id);
+  assert.equal((await post(app, "/api/runs/999/retry")).statusCode, 404);
+  assert.equal((await post(app, `/api/runs/999/items/${a.id}/retry`)).statusCode, 404);
+  assert.equal((await post(app, `/api/runs/${run.id}/items/999/retry`)).statusCode, 404);
+  assert.equal((await post(app, `/api/runs/${other.id}/items/${a.id}/retry`)).statusCode, 404);
+  assert.equal((await post(app, `/api/runs/${run.id}/items/abc/retry`)).statusCode, 400);
+  assert.deepEqual(calls.start, []);
+  assert.equal(store.getItem(a.id).status, "retry");
   await app.close();
   db.close();
 });
