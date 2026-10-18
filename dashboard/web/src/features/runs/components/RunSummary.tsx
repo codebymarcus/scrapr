@@ -5,13 +5,15 @@ const UNITS = ["B", "KB", "MB", "GB", "TB"];
 
 /** Bytes as B/KB/MB/GB (1024-based), at most one decimal. */
 export function formatBytes(bytes: number): string {
-  let value = Math.max(0, bytes);
+  let value = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
   let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
+  let rounded = Math.round(value);
+  // Round first, then promote, so 1,048,575 B reads "1 MB" not "1024 KB".
+  while (rounded >= 1024 && unit < UNITS.length - 1) {
     value /= 1024;
     unit += 1;
+    rounded = Math.round(value * 10) / 10;
   }
-  const rounded = unit === 0 ? Math.round(value) : Math.round(value * 10) / 10;
   return `${rounded} ${UNITS[unit]}`;
 }
 

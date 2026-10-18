@@ -20,6 +20,19 @@ describe("formatBytes", () => {
     expect(formatBytes(5 * 1024 * 1024)).toBe("5 MB");
     expect(formatBytes(3 * 1024 ** 3)).toBe("3 GB");
   });
+
+  it("handles unit boundaries", () => {
+    expect(formatBytes(1023)).toBe("1023 B");
+    expect(formatBytes(1024)).toBe("1 KB");
+    expect(formatBytes(1_048_575)).toBe("1 MB");
+    expect(formatBytes(1_048_576)).toBe("1 MB");
+    expect(formatBytes(5 * 1024 ** 4)).toBe("5 TB");
+  });
+
+  it("guards invalid input", () => {
+    expect(formatBytes(Number.NaN)).toBe("0 B");
+    expect(formatBytes(-5)).toBe("0 B");
+  });
 });
 
 describe("formatDuration", () => {
@@ -28,6 +41,9 @@ describe("formatDuration", () => {
     expect(formatDuration(45_000)).toBe("45s");
     expect(formatDuration(125_000)).toBe("2m 5s");
     expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(999)).toBe("0s");
+    expect(formatDuration(59_999)).toBe("59s");
+    expect(formatDuration(3_600_000)).toBe("1h 0m 0s");
   });
 });
 

@@ -164,6 +164,8 @@ describe("useRunEvents", () => {
       )?.map((r) => r.state),
     ).toEqual(["stopped", "queued"]);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.lists() });
+    // The detail carries the summary, which must be refetched at the end.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.detail(1) });
   });
 
   it("does not invalidate lists for a non-terminal state event", () => {

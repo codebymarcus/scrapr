@@ -103,6 +103,8 @@ function applyEvent(
       );
       if (TERMINAL_STATES.has(event.state)) {
         void queryClient.invalidateQueries({ queryKey: runKeys.lists() });
+        // The cached detail's summary was fetched mid-run; refetch it.
+        void queryClient.invalidateQueries({ queryKey: detailKey });
       }
       return;
     }
