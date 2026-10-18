@@ -69,14 +69,15 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
     };
   }
 
-  function enqueue(run, urls, reply) {
+  // `items` are URL strings (manual entry) or { url, name } rows (sheet import).
+  function enqueue(run, items, reply) {
     if (!ENQUEUEABLE.has(run.state)) {
       return reply.code(409).send({
         error: `Cannot add items to a ${run.state} run (only queued or stopped runs accept items)`,
       });
     }
-    store.addItems(run.id, urls);
-    return { added: urls.length };
+    store.addItems(run.id, items);
+    return { added: items.length };
   }
 
   app.post("/api/runs", async (request, reply) => {
@@ -152,17 +153,18 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
     }
 
     const tempPath = join(tmpdir(), `scrapr-import-${randomUUID()}${ext}`);
-    let urls;
+    let rows;
     try {
       await writeFile(tempPath, buffer);
-      urls = await importSheet(tempPath);
+      rows = await importSheet(tempPath); // [{ url, name }]
     } catch (err) {
       return reply.code(400).send({ error: `Could not parse sheet: ${err.message}` });
     } finally {
       await unlink(tempPath).catch(() => {});
     }
-    if (!run) return { urls };
-    return enqueue(run, urls, reply);
+    // Preview (no runId): just the URLs. With a runId: store rows incl. their names.
+    if (!run) return { urls: rows.map((row) => row.url) };
+    return enqueue(run, rows, reply);
   });
 
   app.get(

@@ -52,7 +52,7 @@ export function createStore(db) {
       "SELECT COALESCE(MAX(position), -1) AS max FROM run_items WHERE run_id = ?",
     ),
     insertItem: db.prepare(
-      "INSERT INTO run_items (run_id, url, status, position) VALUES (?, ?, '', ?)",
+      "INSERT INTO run_items (run_id, url, name, status, position) VALUES (?, ?, ?, '', ?)",
     ),
     listItems: db.prepare("SELECT * FROM run_items WHERE run_id = ? ORDER BY position ASC"),
     loadItems: db.prepare(
@@ -71,11 +71,15 @@ export function createStore(db) {
     deleteSecret: db.prepare("DELETE FROM secrets WHERE key = ?"),
   };
 
-  const addItemsTx = db.transaction((runId, urls) => {
+  // Each item is a URL string or a { url, name } row (name from a sheet's
+  // name/title column). A missing name is stored as null.
+  const addItemsTx = db.transaction((runId, items) => {
     let position = q.maxPosition.get(runId).max;
-    for (const url of urls) {
+    for (const item of items) {
       position += 1;
-      q.insertItem.run(runId, url, position);
+      const url = typeof item === "string" ? item : item.url;
+      const name = typeof item === "string" ? null : (item.name ?? null);
+      q.insertItem.run(runId, url, name, position);
     }
   });
 
@@ -140,8 +144,9 @@ export function createStore(db) {
     setRunState(id, state, times = {}) {
       q.setRunState.run(state, times.startedAt ?? null, times.finishedAt ?? null, id);
     },
-    addItems(runId, urls) {
-      addItemsTx(runId, urls);
+    // items: URL strings and/or { url, name } rows.
+    addItems(runId, items) {
+      addItemsTx(runId, items);
     },
     listItems(runId) {
       return q.listItems.all(runId);

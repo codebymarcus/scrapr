@@ -194,7 +194,10 @@ test("import with runId enqueues the uploaded urls", async () => {
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().added, 2);
-  assert.equal(ctx.store.listItems(body.run.id).length, 2);
+  const items = ctx.store.listItems(body.run.id);
+  assert.equal(items.length, 2);
+  // The sheet's name column is captured so outputs can be named from it.
+  assert.deepEqual(items.map((i) => i.name), ["Alpha", "Beta"]);
 
   ctx.store.setRunState(body.run.id, "running");
   const conflict = await app.inject({

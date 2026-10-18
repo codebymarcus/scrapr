@@ -220,3 +220,18 @@ test("built-in recipe honors a format override", () => {
   assert.equal(cfg.pdf, true);
   assert.equal(cfg.format, "jpg");
 });
+
+test("image recipes run in batch mode (per-item naming); text recipes do not", () => {
+  const img = buildRunConfig({ name: "I", contentType: "image" }, { runOutDir: "/o" });
+  assert.equal(img.batch, true);
+  const builtIn = buildRunConfig(
+    { name: "B", contentType: "image", builtIn: true, builtInProfile: "x" },
+    { runOutDir: "/o" },
+  );
+  assert.equal(builtIn.batch, true);
+  const txt = buildRunConfig(
+    { name: "T", contentType: "text", text: { mode: "article" } },
+    { runOutDir: "/o" },
+  );
+  assert.notEqual(txt.batch, true);
+});

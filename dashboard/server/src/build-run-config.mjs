@@ -55,6 +55,9 @@ export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
   // Built-in recipe: a standard image config. The engine's own URL-matched profile drives
   // extraction, so no imageRules and no text wiring are set.
   if (recipe.builtIn) {
+    // A run is a batch of store-backed items: name each output per item
+    // (job.name > title > slug) under the run dir, not after the run id.
+    config.batch = true;
     copyOutput(config, recipe.output);
     applyOverrides(config, overrides);
     normalizePackaging(config);
@@ -73,6 +76,8 @@ export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
     return config;
   }
 
+  // A run is a batch of store-backed items: name each output per item.
+  config.batch = true;
   copyOutput(config, recipe.output);
   applyOverrides(config, overrides);
   normalizePackaging(config);

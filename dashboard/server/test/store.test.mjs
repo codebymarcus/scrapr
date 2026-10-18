@@ -178,3 +178,19 @@ test("failInterruptedRuns marks running runs failed, leaves others", () => {
 
   assert.equal(store.failInterruptedRuns(), 0); // idempotent: none left running
 });
+
+test("addItems stores a name from { url, name } rows; strings get a null name", () => {
+  const { store } = setup();
+  const p = store.createProject({ name: "P", recipe: {} });
+  const run = store.createRun({ projectId: p.id });
+  store.addItems(run.id, [
+    { url: "https://a", name: "Alpha" },
+    { url: "https://b", name: null },
+    "https://c",
+  ]);
+  const items = store.loadItems(run.id);
+  assert.deepEqual(
+    items.map((i) => [i.url, i.name]),
+    [["https://a", "Alpha"], ["https://b", null], ["https://c", null]],
+  );
+});

@@ -29,7 +29,10 @@ function cacheDirFor(outDir) {
 //   Single-URL mode: --out is the exact output dir.
 //   Batch mode:      --out is the PARENT dir; each link gets its own subfolder.
 export function resolveTargets(config, job, { outputName } = {}) {
-  if (config.listFile) {
+  // Batch mode: a list file (CLI) OR a store-backed run (dashboard). Either way
+  // `out` is the PARENT dir and each job gets its own name (job.name > title > slug),
+  // so items in one run don't collide on a single run-id-named file.
+  if (config.listFile || config.batch) {
     const base = config.out || "downloads";
     // Stable key for the cache dir (never from metadata) so resume is unaffected.
     const cacheKey = job.name ? sanitizeName(job.name) : slugFromUrl(job.url);

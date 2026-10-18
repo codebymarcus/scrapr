@@ -91,3 +91,16 @@ test("resolveRecordBase: single-URL uses out; batch uses out/results; textName o
   assert.equal(resolveRecordBase({ listFile: "l.csv", out: "downloads", textName: "contacts" }), "contacts");
   assert.equal(resolveRecordBase({ listFile: null, out: null }), "results");
 });
+
+test("resolveTargets: config.batch (no listFile) names per job from job.name", () => {
+  const cfg = { listFile: null, batch: true, out: "runs/4" };
+  const t = resolveTargets(cfg, { url: "https://x/read", name: "World War Hulk 1" });
+  assert.equal(t.cbzPath, path.join("runs/4", "World War Hulk 1.cbz"));
+});
+
+test("resolveTargets: config.batch falls back to url slug without a name", () => {
+  const cfg = { listFile: null, batch: true, out: "runs/4" };
+  const t = resolveTargets(cfg, { url: "https://read.x.com/i/5", name: null });
+  assert.notEqual(path.basename(t.cbzPath), "4.cbz"); // not named after the run dir
+  assert.match(t.cbzPath, /read-x-com/);
+});
