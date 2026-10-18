@@ -44,6 +44,8 @@ export function buildApp(deps = {}) {
       store: deps.store,
       runManager: deps.runManager,
       runOutDir: deps.runOutDir,
+      driveAuth: deps.driveAuth,
+      driveUploaderFactory: deps.driveUploaderFactory,
     });
   }
   return app;

@@ -6,6 +6,7 @@ import { resolveRecordBase } from "../../../../src/naming.mjs";
 import { DATA_DIR } from "../config.mjs";
 import { importSheet } from "../import-sheet.mjs";
 import { createRunSchema, enqueueSchema, parseOr400 } from "../schemas.mjs";
+import { uploadItem } from "../upload-item.mjs";
 
 const SHEET_EXT = /\.(csv|tsv|txt|xlsx|xls)$/i;
 
@@ -67,7 +68,16 @@ async function listImageOutputs(outDir) {
   return outputs.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function runRoutes(app, { store, runManager, runOutDir = defaultRunOutDir }) {
+// uploadItem error code -> HTTP status. "unavailable" (Drive not connected / text
+// run) and "no_output" (file missing) are conflicts with current state, not 500s.
+const UPLOAD_ERROR_STATUS = { not_found: 404, unavailable: 409, no_output: 409 };
+
+export async function runRoutes(
+  app,
+  { store, runManager, runOutDir = defaultRunOutDir, driveAuth, driveUploaderFactory },
+) {
+  const uploadDeps = { store, driveAuth, runOutDir, driveUploaderFactory };
+
   function withId(handler) {
     return async (request, reply) => {
       const id = parseId(request.params.id);
@@ -246,6 +256,58 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
     store.deleteItem(item.id);
     return { deleted: true };
   });
+
+  // On-demand Drive upload of one already-scraped item. Typed helper errors map
+  // to 404/409; an unexpected Drive failure is a 502 (the run itself is fine).
+  app.post("/api/runs/:id/items/:itemId/upload", async (request, reply) => {
+    const parsed = parseRunItemParams(request.params);
+    if (parsed.error) return reply.code(400).send({ error: parsed.error });
+    const run = store.getRun(parsed.id);
+    if (!run) return reply.code(404).send({ error: "Run not found" });
+    if (run.state === "running") {
+      return reply.code(409).send({ error: "Cannot upload while the run is running (stop it first)" });
+    }
+    try {
+      const { driveLink } = await uploadItem(uploadDeps, run.id, parsed.itemId);
+      return { uploaded: true, driveLink };
+    } catch (err) {
+      const status = UPLOAD_ERROR_STATUS[err?.code];
+      if (status) return reply.code(status).send({ error: err.message });
+      return reply.code(502).send({ error: `Drive upload failed: ${err?.message ?? err}` });
+    }
+  });
+
+  // Upload every completed-but-not-uploaded row. Rows whose output file is
+  // missing are skipped; per-row Drive failures are counted, not fatal. If Drive
+  // is unavailable for the whole run (not connected / text run) the first row
+  // surfaces a 409.
+  app.post(
+    "/api/runs/:id/upload-pending",
+    withId(async (id, request, reply) => {
+      const run = store.getRun(id);
+      if (!run) return reply.code(404).send({ error: "Run not found" });
+      if (run.state === "running") {
+        return reply.code(409).send({ error: "Cannot upload while the run is running (stop it first)" });
+      }
+      const pending = store.listItems(id).filter((item) => item.saved != null && item.uploaded_at == null);
+      let uploaded = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (const item of pending) {
+        try {
+          await uploadItem(uploadDeps, id, item.id);
+          uploaded += 1;
+        } catch (err) {
+          if (err?.code === "unavailable") {
+            return reply.code(409).send({ error: err.message });
+          }
+          if (err?.code === "no_output" || err?.code === "not_found") skipped += 1;
+          else failed += 1;
+        }
+      }
+      return { uploaded, skipped, failed };
+    }),
+  );
 
   // Start/stop/retry are only exposed when a run manager is wired in.
   if (runManager) {

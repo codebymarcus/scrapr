@@ -375,3 +375,114 @@ test("delete item: removes just that row; 409 while running, 404 unknown, 400 ba
   assert.ok(store.getItem(b.id)); // not deleted
   await teardown(ctx);
 });
+
+// ---- on-demand Drive upload (per item + bulk) ----
+
+function fakeUploader(calls = []) {
+  return async () => ({
+    uploadFile: async (p) => {
+      calls.push(p);
+      return { id: "d", webViewLink: `https://drive/${calls.length}` };
+    },
+  });
+}
+const connected = { loadAuthConfig: () => ({ clientId: "c", clientSecret: "s", token: {} }) };
+const disconnected = { loadAuthConfig: () => null };
+
+// Create a done image run with one scraped item (output "Ch 1"); optionally write its cbz.
+async function uploadFixture(deps, { writeFile = true } = {}) {
+  const ctx = setup(deps);
+  const run = (await createRun(ctx.app, ctx.project.id)).body.run;
+  ctx.store.addItems(run.id, ["https://example.com/a"]);
+  const [item] = ctx.store.listItems(run.id);
+  ctx.store.setItemResult(item.id, { saved: 3, total: 3, needsReview: false, outputName: "Ch 1" });
+  ctx.store.setRunState(run.id, "done");
+  if (writeFile) {
+    mkdirSync(join(ctx.outRoot, String(run.id)), { recursive: true });
+    writeFileSync(join(ctx.outRoot, String(run.id), "Ch 1.cbz"), "x");
+  }
+  return { ...ctx, run, item };
+}
+
+test("upload item: success records upload state and returns the link", async () => {
+  const calls = [];
+  const ctx = await uploadFixture({ driveAuth: connected, driveUploaderFactory: fakeUploader(calls) });
+  const res = await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/${ctx.item.id}/upload` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { uploaded: true, driveLink: "https://drive/1" });
+  const row = ctx.store.getItem(ctx.item.id);
+  assert.ok(row.uploaded_at);
+  assert.equal(row.drive_link, "https://drive/1");
+  assert.equal(calls.length, 1);
+  await teardown(ctx);
+});
+
+test("upload item: typed errors map to 404/409, never 500, and leave state unchanged", async () => {
+  // Drive not connected -> 409
+  let ctx = await uploadFixture({ driveAuth: disconnected, driveUploaderFactory: fakeUploader() });
+  let res = await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/${ctx.item.id}/upload` });
+  assert.equal(res.statusCode, 409);
+  assert.equal(ctx.store.getItem(ctx.item.id).uploaded_at, null);
+  await teardown(ctx);
+
+  // missing output file -> 409
+  ctx = await uploadFixture({ driveAuth: connected, driveUploaderFactory: fakeUploader() }, { writeFile: false });
+  res = await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/${ctx.item.id}/upload` });
+  assert.equal(res.statusCode, 409);
+  assert.equal(ctx.store.getItem(ctx.item.id).uploaded_at, null);
+  // unknown item / unknown run / bad id
+  assert.equal((await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/9999/upload` })).statusCode, 404);
+  assert.equal((await ctx.app.inject({ method: "POST", url: `/api/runs/9999/items/${ctx.item.id}/upload` })).statusCode, 404);
+  assert.equal((await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/abc/upload` })).statusCode, 400);
+  await teardown(ctx);
+
+  // text recipe -> 409
+  ctx = setup({ driveAuth: connected, driveUploaderFactory: fakeUploader() });
+  const run = (await createRun(ctx.app, ctx.textProject.id)).body.run;
+  ctx.store.addItems(run.id, ["https://example.com/a"]);
+  const [item] = ctx.store.listItems(run.id);
+  res = await ctx.app.inject({ method: "POST", url: `/api/runs/${run.id}/items/${item.id}/upload` });
+  assert.equal(res.statusCode, 409);
+  await teardown(ctx);
+});
+
+test("upload item / upload-pending: 409 while the run is running", async () => {
+  const calls = [];
+  const ctx = await uploadFixture({ driveAuth: connected, driveUploaderFactory: fakeUploader(calls) });
+  ctx.store.setRunState(ctx.run.id, "running");
+  const one = await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/items/${ctx.item.id}/upload` });
+  assert.equal(one.statusCode, 409);
+  const bulk = await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/upload-pending` });
+  assert.equal(bulk.statusCode, 409);
+  assert.equal(calls.length, 0);
+  await teardown(ctx);
+});
+
+test("upload-pending: uploads completed-not-uploaded rows, skips missing files, returns a count", async () => {
+  const calls = [];
+  const ctx = await uploadFixture({ driveAuth: connected, driveUploaderFactory: fakeUploader(calls) });
+  const { store, run, outRoot } = ctx;
+  store.addItems(run.id, ["https://example.com/b", "https://example.com/c", "https://example.com/d"]);
+  const [, b, c, d] = store.listItems(run.id);
+  store.setItemResult(b.id, { saved: 2, total: 2, needsReview: false, outputName: "Ch 2" }); // file present
+  writeFileSync(join(outRoot, String(run.id), "Ch 2.cbz"), "x");
+  store.setItemResult(c.id, { saved: 2, total: 2, needsReview: false, outputName: "Ch 3" }); // file missing -> skipped
+  // d never scraped (saved null) -> not pending
+  store.setItemUpload(ctx.item.id, { uploadedAt: "2026-01-01T00:00:00.000Z", driveLink: "https://old" }); // already uploaded
+
+  const res = await ctx.app.inject({ method: "POST", url: `/api/runs/${run.id}/upload-pending` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { uploaded: 1, skipped: 1, failed: 0 });
+  assert.equal(calls.length, 1);
+  assert.ok(store.getItem(b.id).uploaded_at);
+  assert.equal(store.getItem(c.id).uploaded_at, null);
+  assert.equal(store.getItem(d.id).uploaded_at, null);
+  await teardown(ctx);
+});
+
+test("upload-pending: Drive not connected -> 409; unknown run -> 404", async () => {
+  const ctx = await uploadFixture({ driveAuth: disconnected, driveUploaderFactory: fakeUploader() });
+  assert.equal((await ctx.app.inject({ method: "POST", url: `/api/runs/${ctx.run.id}/upload-pending` })).statusCode, 409);
+  assert.equal((await ctx.app.inject({ method: "POST", url: `/api/runs/9999/upload-pending` })).statusCode, 404);
+  await teardown(ctx);
+});
