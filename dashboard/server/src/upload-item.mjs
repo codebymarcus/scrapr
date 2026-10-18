@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DriveUploader } from "../../../src/drive.mjs";
 import { buildRunConfig } from "./build-run-config.mjs";
@@ -34,7 +34,7 @@ function findOutputFile(outDir, outputName) {
 
 // Upload one already-scraped item to Drive on demand. Idempotent: the uploader
 // returns the existing Drive file when it is already there, and we simply
-// re-record its link. Resolves { driveLink }.
+// re-record its link. Resolves { driveLink, outputSize }.
 export async function uploadItem(deps, runId, itemId) {
   const { store, driveAuth, runOutDir, driveUploaderFactory = DriveUploader.create, logger = silentLogger } = deps;
 
@@ -62,6 +62,12 @@ export async function uploadItem(deps, runId, itemId) {
   if (!res) throw new UploadItemError("no_output", "Output file for this item was not found");
 
   const driveLink = res.webViewLink ?? null;
-  store.setItemUpload(itemId, { uploadedAt: new Date().toISOString(), driveLink });
-  return { driveLink };
+  let outputSize = null;
+  try {
+    outputSize = statSync(filePath).size;
+  } catch {
+    // size is informational; the upload already succeeded
+  }
+  store.setItemUpload(itemId, { uploadedAt: new Date().toISOString(), driveLink, outputSize });
+  return { driveLink, outputSize };
 }

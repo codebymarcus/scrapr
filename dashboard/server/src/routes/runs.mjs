@@ -6,6 +6,7 @@ import { resolveRecordBase } from "../../../../src/naming.mjs";
 import { DATA_DIR } from "../config.mjs";
 import { importSheet } from "../import-sheet.mjs";
 import { createRunSchema, enqueueSchema, parseOr400 } from "../schemas.mjs";
+import { summarizeRun } from "../run-summary.mjs";
 import { uploadItem } from "../upload-item.mjs";
 
 const SHEET_EXT = /\.(csv|tsv|txt|xlsx|xls)$/i;
@@ -191,7 +192,8 @@ export async function runRoutes(
     withId(async (id, request, reply) => {
       const run = store.getRun(id);
       if (!run) return reply.code(404).send({ error: "Run not found" });
-      return { run, items: store.listItems(id) };
+      const items = store.listItems(id);
+      return { run, items, summary: summarizeRun(run, items) };
     }),
   );
 

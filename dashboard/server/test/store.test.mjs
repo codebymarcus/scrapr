@@ -288,3 +288,21 @@ test("resetItemsForRetry(runId) resets failed rows and leaves done/skip untouche
   assert.equal(store.getItem(skip.id).status, "skip");
   assert.equal(store.getItem(blank.id).status, "");
 });
+
+test("setItemResult persists bytes when given and leaves it alone when omitted", () => {
+  const { store, items } = itemsSetup(["https://a"]);
+  assert.equal(store.getItem(items[0].id).bytes, null);
+  store.setItemResult(items[0].id, { saved: 2, total: 3, needsReview: false, bytes: 12345 });
+  assert.equal(store.getItem(items[0].id).bytes, 12345);
+  store.setItemResult(items[0].id, { saved: 3, total: 3, needsReview: false });
+  assert.equal(store.getItem(items[0].id).bytes, 12345);
+});
+
+test("setItemUpload persists output_size when given and leaves it alone when omitted", () => {
+  const { store, items } = itemsSetup(["https://a"]);
+  assert.equal(store.getItem(items[0].id).output_size, null);
+  store.setItemUpload(items[0].id, { uploadedAt: "t", driveLink: "l", outputSize: 999 });
+  assert.equal(store.getItem(items[0].id).output_size, 999);
+  store.setItemUpload(items[0].id, { uploadedAt: "t2", driveLink: "l2" });
+  assert.equal(store.getItem(items[0].id).output_size, 999);
+});

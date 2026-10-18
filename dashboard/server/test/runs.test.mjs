@@ -8,6 +8,7 @@ import { buildApp } from "../src/app.mjs";
 import { openDb } from "../src/db/db.mjs";
 import { migrate } from "../src/db/migrations.mjs";
 import { createStore } from "../src/db/store.mjs";
+import { DEFAULTS } from "../../../src/config.mjs";
 
 const fixture = fileURLToPath(new URL("./fixtures/links.csv", import.meta.url));
 const fixtureCsv = readFileSync(fixture, "utf8");
@@ -83,6 +84,37 @@ test("create run bound to a project, list and get", async () => {
   const got = await app.inject({ method: "GET", url: `/api/runs/${body.run.id}` });
   assert.equal(got.statusCode, 200);
   assert.deepEqual(got.json().items, []);
+  assert.equal(got.json().summary.counts.total, 0);
+  await teardown(ctx);
+});
+
+test("GET run detail includes a summary computed from items and timestamps", async () => {
+  const ctx = setup();
+  const { app, project, store } = ctx;
+  const { body } = await createRun(app, project.id);
+  const id = body.run.id;
+  store.addItems(id, ["https://a", "https://b", "https://c"]);
+  const [a, b] = store.listItems(id);
+  store.setItemStatus(a.id, "done");
+  store.setItemResult(a.id, { saved: 10, total: 10, needsReview: false, outputName: "A", bytes: 2_000_000_000 });
+  store.setItemUpload(a.id, { uploadedAt: "t", driveLink: "l", outputSize: 4096 });
+  store.setItemStatus(b.id, "retry");
+  store.setItemReason(b.id, "boom");
+  store.setItemResult(b.id, { saved: 0, total: 3, needsReview: false, bytes: 500_000_000 });
+
+  // No finished_at yet -> null duration.
+  store.setRunState(id, "running", { startedAt: "2026-01-01T00:00:00.000Z" });
+  let s = (await app.inject({ method: "GET", url: `/api/runs/${id}` })).json().summary;
+  assert.equal(s.durationMs, null);
+  assert.deepEqual(s.counts, { total: 3, completed: 1, failed: 1, skipped: 0, uploaded: 1 });
+  assert.equal(s.pages, 10);
+  assert.equal(s.uploadedSize, 4096);
+  assert.equal(s.bytesDownloaded, 2_500_000_000);
+  assert.equal(s.cost, (2_500_000_000 / 1e9) * (DEFAULTS.costPerGb ?? 0));
+
+  store.setRunState(id, "done", { finishedAt: "2026-01-01T00:02:00.000Z" });
+  s = (await app.inject({ method: "GET", url: `/api/runs/${id}` })).json().summary;
+  assert.equal(s.durationMs, 120_000);
   await teardown(ctx);
 });
 

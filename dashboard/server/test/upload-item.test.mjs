@@ -17,9 +17,9 @@ function setup({ recipe = { name: "Img", contentType: "image" }, item = {}, auth
     getRun: (id) => (id === 1 ? run : null),
     getProject: (id) => (id === 7 ? { id: 7, recipe } : null),
     getItem: (id) => items.get(id) ?? null,
-    setItemUpload: (id, { uploadedAt, driveLink }) => {
-      uploads.push({ id, uploadedAt, driveLink });
-      Object.assign(items.get(id), { uploaded_at: uploadedAt, drive_link: driveLink });
+    setItemUpload: (id, { uploadedAt, driveLink, outputSize }) => {
+      uploads.push({ id, uploadedAt, driveLink, outputSize });
+      Object.assign(items.get(id), { uploaded_at: uploadedAt, drive_link: driveLink, output_size: outputSize });
     },
   };
   const driveAuth = { loadAuthConfig: () => authConfig };
@@ -40,7 +40,9 @@ function setup({ recipe = { name: "Img", contentType: "image" }, item = {}, auth
 test("uploads the cbz and records uploaded_at + drive_link", async () => {
   const s = setup({ files: ["Ch 1.cbz", "Ch 1.pdf"] });
   const res = await uploadItem(s.deps, 1, 5);
-  assert.deepEqual(res, { driveLink: "https://drive/x" });
+  assert.deepEqual(res, { driveLink: "https://drive/x", outputSize: 1 });
+  assert.equal(s.uploads[0].outputSize, 1);
+  assert.equal(s.items.get(5).output_size, 1);
   assert.deepEqual(s.calls.paths, [join(s.dir, "Ch 1.cbz")]);
   assert.equal(s.uploads.length, 1);
   assert.ok(s.uploads[0].uploadedAt);
@@ -107,7 +109,7 @@ test("Drive 'already there' with no webViewLink -> records a null link, no error
   const s = setup({ files: ["Ch 1.cbz"] });
   s.deps.driveUploaderFactory = async () => ({ uploadFile: async () => ({ id: "d1" }) });
   const res = await uploadItem(s.deps, 1, 5);
-  assert.deepEqual(res, { driveLink: null });
+  assert.deepEqual(res, { driveLink: null, outputSize: 1 });
   assert.equal(s.uploads.length, 1);
   assert.ok(s.items.get(5).uploaded_at);
   s.cleanup();

@@ -87,9 +87,14 @@ export function createRunManager({
             total: rec.total,
             needsReview: review,
             outputName: rec.outputName,
+            bytes: rec.bytes,
           });
           if (rec.uploaded) {
-            store.setItemUpload(rec.id, { uploadedAt: now(), driveLink: rec.driveLink });
+            store.setItemUpload(rec.id, {
+              uploadedAt: now(),
+              driveLink: rec.driveLink,
+              outputSize: rec.outputSize,
+            });
           }
           safeEmit(runId, {
             type: "item",

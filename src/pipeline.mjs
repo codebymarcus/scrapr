@@ -17,7 +17,7 @@ import { PageCache } from "./cache.mjs";
 import { BandwidthMeter, formatBandwidth } from "./bandwidth.mjs";
 import sharp from "sharp";
 import path from "node:path";
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { ScrapingOrchestrator } from "./orchestrator.mjs";
 import { scrapeText, resolveMode } from "./text/scrape-text.mjs";
@@ -119,6 +119,23 @@ export async function applyImageDimensionRules(images, rules, { dimsOf = sharpDi
 // Scrape one URL through the full sequence:
 //   acquire (via the strategy orchestrator) → convert/package → upload →
 //   clean up local files + cache.
+// Total size in bytes of the given files (falsy entries are skipped); null when
+// none could be statted. Never throws: a size is informational only.
+async function sizeOfFiles(paths) {
+  let total = 0;
+  let any = false;
+  for (const p of paths) {
+    if (!p) continue;
+    try {
+      total += (await stat(p)).size;
+      any = true;
+    } catch {
+      // vanished or unreadable: ignore
+    }
+  }
+  return any ? total : null;
+}
+
 // Returns { saved, total, complete, usedStrategy, attempts }.
 export async function scrapeJob(session, job, config, processor, packagers, uploader, logger, orchestrator, profile) {
   const targets = resolveTargets(config, job);
@@ -169,6 +186,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     let uploaded = false;
     let driveLink = null;
     let uploadError = null;
+    let outputSize = null;
     if (uploader) {
       const uploadCbz = config.cbz && config.driveOnly !== "pdf";
       const uploadPdf = config.pdf && config.driveOnly !== "cbz";
@@ -181,6 +199,8 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
           const pdfMeta = uploadPdf ? await uploader.uploadFile(finalTargets.pdfPath) : null;
           uploaded = true;
           driveLink = cbzMeta?.webViewLink || pdfMeta?.webViewLink || null;
+          // Measured now: cleanup below may delete the files we just uploaded.
+          outputSize = await sizeOfFiles([uploadCbz && finalTargets.cbzPath, uploadPdf && finalTargets.pdfPath]);
         } catch (e) {
           uploadError = String(e?.message || e);
           logger.error(`Drive upload failed: ${uploadError} — local files kept`);
@@ -198,7 +218,7 @@ export async function scrapeJob(session, job, config, processor, packagers, uplo
     return {
       saved: outputs.length, total: r.total, complete: true, bytes: meter.bytes, requests: meter.count,
       usedStrategy: r.usedStrategy, attempts: r.attempts, contentType,
-      outputName: path.basename(finalTargets.outDir), uploaded, driveLink, uploadError,
+      outputName: path.basename(finalTargets.outDir), uploaded, driveLink, outputSize, uploadError,
       cbz: !!config.cbz, pdf: !!config.pdf
     };
   } finally {

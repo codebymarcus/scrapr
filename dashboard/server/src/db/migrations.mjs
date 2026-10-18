@@ -56,6 +56,13 @@ export const MIGRATIONS = [
       ALTER TABLE run_items ADD COLUMN drive_link TEXT;
     `,
   },
+  {
+    id: "005_item_metrics",
+    sql: `
+      ALTER TABLE run_items ADD COLUMN output_size INTEGER;
+      ALTER TABLE run_items ADD COLUMN bytes INTEGER;
+    `,
+  },
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

@@ -64,9 +64,11 @@ export function createStore(db) {
       "UPDATE run_items SET saved = ?, total = ?, needs_review = ? WHERE id = ?",
     ),
     setItemOutputName: db.prepare("UPDATE run_items SET output_name = ? WHERE id = ?"),
+    setItemBytes: db.prepare("UPDATE run_items SET bytes = ? WHERE id = ?"),
     setItemUpload: db.prepare(
       "UPDATE run_items SET uploaded_at = ?, drive_link = ? WHERE id = ?",
     ),
+    setItemOutputSize: db.prepare("UPDATE run_items SET output_size = ? WHERE id = ?"),
     getItem: db.prepare("SELECT * FROM run_items WHERE id = ?"),
     deleteItem: db.prepare("DELETE FROM run_items WHERE id = ?"),
     // Back to a re-runnable state: blank status (skipReason crawls it), no
@@ -169,12 +171,14 @@ export function createStore(db) {
     listItems(runId) {
       return q.listItems.all(runId);
     },
-    setItemResult(id, { saved, total, needsReview, outputName }) {
+    setItemResult(id, { saved, total, needsReview, outputName, bytes }) {
       q.setItemResult.run(saved, total, needsReview ? 1 : 0, id);
       if (outputName !== undefined) q.setItemOutputName.run(outputName, id);
+      if (bytes != null) q.setItemBytes.run(bytes, id);
     },
-    setItemUpload(id, { uploadedAt, driveLink }) {
+    setItemUpload(id, { uploadedAt, driveLink, outputSize }) {
       q.setItemUpload.run(uploadedAt ?? null, driveLink ?? null, id);
+      if (outputSize != null) q.setItemOutputSize.run(outputSize, id);
     },
     getItem(id) {
       return q.getItem.get(id) ?? null;

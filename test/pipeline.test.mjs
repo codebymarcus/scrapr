@@ -450,6 +450,7 @@ test("scrapeJob: scrape ok + upload fails -> complete:true, uploaded:false, loca
   assert.equal(r.complete, true, "an upload failure is not a scrape failure");
   assert.equal(r.uploaded, false);
   assert.equal(r.driveLink, null);
+  assert.equal(r.outputSize, null);
   assert.equal(r.outputName, "My Title");
   assert.equal(r.cbz, true);
   assert.equal(r.pdf, false);
@@ -465,6 +466,14 @@ test("scrapeJob: scrape ok + upload ok -> uploaded:true with driveLink and outpu
   assert.equal(r.driveLink, "https://drive/F1");
   assert.equal(r.outputName, "My Title");
   assert.equal(r.saved, 1);
+  assert.equal(r.outputSize, 3, "size in bytes of the uploaded cbz");
+});
+
+test("scrapeJob: outputSize is measured before cleanup deletes the uploaded file", async () => {
+  const uploader = { uploadFile: async () => ({ id: "F1", webViewLink: "https://drive/F1" }) };
+  const { r, stillThere } = await uploadScenario({ uploader, cleanup: true });
+  assert.equal(stillThere, false);
+  assert.equal(r.outputSize, 3);
 });
 
 test("scrapeJob: no uploader -> uploaded:false, driveLink null, outputName still reported", async () => {

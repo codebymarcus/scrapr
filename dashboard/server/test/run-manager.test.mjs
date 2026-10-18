@@ -134,8 +134,8 @@ test("onItem persists output name + upload state and emits them on the item even
   const run = makeRun(["https://e.com/1", "https://e.com/2"]);
   const [a, b] = store.listItems(run.id);
   const factory = fakeFactory(async (_r, deps) => {
-    deps.onItem({ id: a.id, url: a.url, saved: 3, total: 3, ok: true, outputName: "Issue 1", uploaded: true, driveLink: "http://d/1" });
-    deps.onItem({ id: b.id, url: b.url, saved: 2, total: 2, ok: true, outputName: "Issue 2", uploaded: false, driveLink: null });
+    deps.onItem({ id: a.id, url: a.url, saved: 3, total: 3, ok: true, outputName: "Issue 1", uploaded: true, driveLink: "http://d/1", bytes: 5000, outputSize: 4096 });
+    deps.onItem({ id: b.id, url: b.url, saved: 2, total: 2, ok: true, outputName: "Issue 2", uploaded: false, driveLink: null, bytes: 700, outputSize: null });
     return 0;
   });
   const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
@@ -144,10 +144,14 @@ test("onItem persists output name + upload state and emits them on the item even
   assert.equal(ia.output_name, "Issue 1");
   assert.ok(ia.uploaded_at);
   assert.equal(ia.drive_link, "http://d/1");
+  assert.equal(ia.bytes, 5000);
+  assert.equal(ia.output_size, 4096);
   const ib = store.getItem(b.id);
   assert.equal(ib.output_name, "Issue 2");
   assert.ok(!ib.uploaded_at);
   assert.ok(!ib.drive_link);
+  assert.equal(ib.bytes, 700);
+  assert.equal(ib.output_size, null);
   const itemEvents = events.filter((e) => e.ev.type === "item");
   assert.equal(itemEvents[0].ev.outputName, "Issue 1");
   assert.equal(itemEvents[0].ev.uploaded, true);
