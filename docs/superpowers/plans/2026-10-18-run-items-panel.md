@@ -203,9 +203,55 @@
 
 ---
 
+### Task 10: Backend — capture per-run stats + run summary
+
+**Files:**
+- Modify: `dashboard/server/src/db/migrations.mjs` (migration `005_item_metrics`)
+- Modify: `dashboard/server/src/db/store.mjs`, `dashboard/server/src/run-manager.mjs`
+- Modify: `src/pipeline.mjs` (`scrapeJob` returns uploaded-file size), `dashboard/server/src/upload-item.mjs` (return size)
+- Modify: `dashboard/server/src/routes/runs.mjs` (`GET /api/runs/:id` adds `summary`)
+- Test: extend `dashboard/server/test/{store,run-routes,runs}.test.mjs`, `test/pipeline.test.mjs`
+
+**Interfaces:**
+- Migration `005_item_metrics`: `ALTER TABLE run_items ADD COLUMN output_size INTEGER; ADD COLUMN bytes INTEGER;` (`bytes` = downloaded bytes for that row; `output_size` = size of the uploaded package).
+- `scrapeJob` return gains `outputSize: number|null` (size of the uploaded `.cbz`/`.pdf`, when uploaded) — alongside the Task 1 fields; `rec.bytes` already exists (BandwidthMeter).
+- `upload-item.mjs` `uploadItem(...)` returns `{ driveLink, outputSize }` and persists `output_size` with the upload.
+- `store.setItemResult(id, { ..., bytes })` persists `bytes`; `setItemUpload(id, { uploadedAt, driveLink, outputSize })` persists `output_size`.
+- `run-manager` `onItem` passes `rec.bytes` and (when uploaded) `rec.outputSize` through.
+- `GET /api/runs/:id` response gains `summary`: `{ durationMs: number|null, counts: { total, completed, failed, skipped, uploaded }, pages: number, uploadedSize: number, bytesDownloaded: number, cost: number }` — computed from the run's items + `started_at`/`finished_at`, with `cost = bytesDownloaded / 1e9 * DEFAULTS.costPerGb`. A shared `summarizeRun(run, items)` helper (status derivation reused) produces it.
+
+- [ ] **Step 1: Add migration `005_item_metrics`.**
+- [ ] **Step 2: Write failing `pipeline.test.mjs`/`store` tests** — `scrapeJob` reports `outputSize` on a successful upload; `setItemResult`/`setItemUpload` persist `bytes`/`output_size`.
+- [ ] **Step 3: Run → FAIL. Step 4: Implement** the engine size capture, store columns, and upload-helper size. **Step 5: Run → PASS.**
+- [ ] **Step 6: Write failing `summarizeRun` + route test** — given items with known saved/bytes/output_size/status and run timestamps, `GET /api/runs/:id` returns the expected `summary` (duration, counts by status, summed pages/uploadedSize/bytesDownloaded, cost from `costPerGb`). Cover a run with no `finished_at` → `durationMs` null.
+- [ ] **Step 7: Run → FAIL. Step 8: Implement `summarizeRun` + wire into the detail route + run-manager persistence. Step 9: Run server + engine suites → PASS.**
+- [ ] **Step 10: Commit** — `feat(server): per-run summary stats (duration, counts, size, bandwidth/cost)`.
+
+---
+
+### Task 11: Web — run summary on the card
+
+**Files:**
+- Modify: `dashboard/web/src/lib/schemas.ts` (`runDetailSchema` gains `summary`; `itemSchema` gains `output_size`/`bytes` nullish)
+- Create: `dashboard/web/src/features/runs/components/RunSummary.tsx` + `.module.scss`
+- Modify: `dashboard/web/src/features/runs/components/RunCard.tsx`
+- Test: `dashboard/web/src/features/runs/components/RunSummary.test.tsx`; extend `RunCard.test.tsx`
+
+**Interfaces:**
+- Consumes: Task 10 `summary` on the run detail (already fetched per run via `useRunProgress`/`useRun`).
+- `RunSummary({ summary })` renders a compact stat row: duration (humanized), outcome counts, total uploaded size (humanized bytes), pages, bandwidth downloaded + estimated cost. Numbers formatted with small local helpers (bytes → KB/MB/GB; ms → h/m/s).
+- `RunCard` shows `RunSummary` for a finished run (`done`/`failed`/`stopped`) when the detail (hence summary) is available.
+
+- [ ] **Step 1: Write failing tests** — `RunSummary` renders each stat from a sample summary with humanized values; `RunCard` shows the summary on a `done` run and not on a `queued` one.
+- [ ] **Step 2: Run → FAIL. Step 3: Implement (component + humanizers + card wiring). Step 4: Run web suite + build → PASS.**
+- [ ] **Step 5: Commit** — `feat(web): show run summary stats on finished runs`.
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** unified form → T7; per-item panel (status/upload/reason/actions) → T6/T8/T9; on-demand + bulk upload → T5; retry (item+failed) → T4; remove row → T4; engine scrape-vs-upload split + output/link → T1; persistence → T2/T3; Drive-link coverage on all upload paths → T1 (+T5 record). Non-goal (no recipe editing in the form) respected — T7 only enqueues/imports.
 - **Review Focus:** missing output file → T5; Drive not connected → T5; 409 guards → T4/T5; large list bounded → T8; duplicate/idempotent upload → T1/T5.
 - **Type consistency:** `outputName`/`uploaded`/`driveLink` flow T1 (engine rec) → T3 (emit + persist) → T6 (`item` event schema) → T8 (render). Store methods `setItemResult(+outputName)`/`setItemUpload`/`deleteItem`/`getItem`/`resetItemsForRetry` defined in T2, consumed in T3/T4/T5. Status contract fixed in Global Constraints, implemented in T6, rendered in T8.
 - **CLI safety:** T1's only behavior change is upload-only-failure → `done`+kept files (stated as intended); terminal scraping path otherwise unchanged.
+- **Run summary (T10/T11):** duration from stored timestamps; counts from the status contract; uploaded size from per-item `output_size` (recorded on upload in T1/T5, column in T10); pages from `saved`; bandwidth from per-item `bytes`; cost from `DEFAULTS.costPerGb`. Served in the run detail (already fetched per run), displayed on finished-run cards.
