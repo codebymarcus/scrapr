@@ -7,6 +7,7 @@ import { TextInput } from "@/components/atoms/TextInput";
 import { Field } from "@/components/molecules/Field";
 import { Modal } from "@/components/molecules/Modal";
 import { useProjects } from "@/features/projects";
+import { useDriveFolderStore } from "@/stores/use-drive-folder-store";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Recipe, Run } from "@/lib/schemas";
@@ -74,13 +75,22 @@ export function NewRunDialog({
   // creating a second run.
   const [createdRun, setCreatedRun] = useState<Run | null>(null);
 
+  // Last-used Drive folder per project, persisted to localStorage, so the
+  // operator doesn't retype it. It prefills over the recipe default.
+  const folderByProject = useDriveFolderStore((state) => state.folderByProject);
+  const rememberFolder = useDriveFolderStore((state) => state.setFolder);
+
   const selectedProject = projectsQuery.data?.find(
     (project) => String(project.id) === projectId,
   );
   const recipe = selectedProject?.recipe;
   const showDrive = recipe?.contentType === "image";
   const drive = driveEdit ?? recipe?.output?.drive ?? false;
-  const folder = folderEdit ?? recipe?.output?.driveFolder ?? "";
+  const rememberedFolder = selectedProject
+    ? folderByProject[selectedProject.id]
+    : undefined;
+  const folder =
+    folderEdit ?? rememberedFolder ?? recipe?.output?.driveFolder ?? "";
   const subfolder = subfolderEdit ?? recipe?.output?.driveSubfolder ?? "";
   // Loose images can't be uploaded, so when Drive is on, coerce/limit to a
   // packaged format (the upload would otherwise silently find nothing to send).
@@ -141,6 +151,10 @@ export function NewRunDialog({
         return;
       }
       setCreatedRun(run);
+      // Remember the folder this project just used (image runs only).
+      if (showDrive && folder.trim()) {
+        rememberFolder(Number(projectId), folder.trim());
+      }
     }
 
     if (file) {

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import { runKeys } from "../hooks/runs-keys";
 import { makeProject } from "@/test/fixtures";
 import { makeRun } from "../test/fixtures";
+import { useDriveFolderStore } from "@/stores/use-drive-folder-store";
 import { NewRunDialog } from "./NewRunDialog";
 
 type Call = { path: string; method: string; body?: unknown };
@@ -466,5 +467,54 @@ describe("NewRunDialog", () => {
       const body = writes()[0]?.body as { overrides: Record<string, unknown> };
       expect(body.overrides).toMatchObject({ drive: true, format: "cbz" });
     });
+  });
+});
+
+describe("NewRunDialog — remembered Drive folder (zustand)", () => {
+  beforeEach(() => {
+    useDriveFolderStore.setState({ folderByProject: {} });
+    try {
+      localStorage.clear();
+    } catch {
+      // jsdom without storage — ignore
+    }
+  });
+
+  it("prefills the Folder ID from the per-project remembered value", async () => {
+    useDriveFolderStore.setState({ folderByProject: { 4: "remembered-xyz" } });
+    setup();
+
+    await pickProject("Plain images");
+
+    expect(screen.getByLabelText("Folder ID")).toHaveValue("remembered-xyz");
+  });
+
+  it("remembered value wins over the recipe's default folder", async () => {
+    useDriveFolderStore.setState({ folderByProject: { 3: "store-wins" } });
+    setup();
+
+    await pickProject("Gallery"); // recipe default folder is "folder-from-recipe"
+
+    expect(screen.getByLabelText("Folder ID")).toHaveValue("store-wins");
+  });
+
+  it("persists the folder id for the project after creating the run", async () => {
+    const { onClose } = setup();
+
+    await pickProject("Plain images");
+    await userEvent.type(screen.getByLabelText("Folder ID"), "typed-123");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(useDriveFolderStore.getState().folderByProject[4]).toBe("typed-123");
+  });
+
+  it("is scoped per project (another project is unaffected)", async () => {
+    useDriveFolderStore.setState({ folderByProject: { 4: "folder-four" } });
+    setup();
+
+    await pickProject("Gallery"); // id 3 — recipe default, not project 4's value
+
+    expect(screen.getByLabelText("Folder ID")).not.toHaveValue("folder-four");
   });
 });
