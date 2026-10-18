@@ -199,11 +199,11 @@ describe("RunsPage", () => {
       await screen.findByRole("button", { name: "+ New run" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Import list" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Import list" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("opens the new-run and import dialogs from the header", async () => {
+  it("opens the new-run dialog, with sheet upload, from the header", async () => {
     renderPage(
       makeFakeClient({
         "/api/runs": { runs: [] },
@@ -215,14 +215,10 @@ describe("RunsPage", () => {
       await screen.findByRole("button", { name: "+ New run" }),
     );
     expect(screen.getByRole("dialog", { name: "New run" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Or upload a sheet")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Import list" }));
-    expect(
-      screen.getByRole("dialog", { name: "Import list" }),
-    ).toBeInTheDocument();
   });
 
   it("tags each run card with its project's content type", async () => {

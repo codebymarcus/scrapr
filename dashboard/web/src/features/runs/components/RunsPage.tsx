@@ -13,7 +13,6 @@ import { useRunProgress } from "../hooks/use-run-progress";
 import { useRuns } from "../hooks/use-runs";
 import { groupRuns, isSameLocalDay } from "../utils";
 import { RunCard } from "./RunCard";
-import { ImportListDialog } from "./ImportListDialog";
 import { NewRunDialog } from "./NewRunDialog";
 import { RunGroup } from "./RunGroup";
 import { StatStrip } from "./StatStrip";
@@ -80,7 +79,7 @@ export function RunsPage({
   const [preselectedProjectId, setPreselectedProjectId] = useState(
     () => (location.state as NewRunFromProjectState | null)?.newRunProjectId,
   );
-  const [dialog, setDialog] = useState<"new" | "import" | null>(
+  const [dialog, setDialog] = useState<"new" | null>(
     preselectedProjectId === undefined ? null : "new",
   );
   const closeDialog = useCallback(() => {
@@ -95,12 +94,9 @@ export function RunsPage({
   }, [preselectedProjectId, navigate, location.pathname]);
 
   const headerActions = (
-    <>
-      <Button variant="primary" onClick={() => setDialog("new")}>
-        + New run
-      </Button>
-      <Button onClick={() => setDialog("import")}>Import list</Button>
-    </>
+    <Button variant="primary" onClick={() => setDialog("new")}>
+      + New run
+    </Button>
   );
 
   function renderBody() {
@@ -132,7 +128,7 @@ export function RunsPage({
             No runs yet
           </Text>
           <Text variant="body" tone="secondary">
-            Start a new run, or import a list of URLs to scrape.
+            Start a new run with pasted URLs or an uploaded sheet.
           </Text>
         </section>
       );
@@ -196,9 +192,6 @@ export function RunsPage({
           initialProjectId={preselectedProjectId}
           onClose={closeDialog}
         />
-      ) : null}
-      {dialog === "import" ? (
-        <ImportListDialog client={client} onClose={closeDialog} />
       ) : null}
     </PageLayout>
   );

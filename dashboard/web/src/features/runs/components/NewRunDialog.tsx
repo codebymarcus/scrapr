@@ -11,7 +11,7 @@ import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Recipe, Run } from "@/lib/schemas";
 import type { RunFormat, RunOverrides } from "../api/runs-api";
-import { useCreateRun, useEnqueue } from "../hooks/use-run-mutations";
+import { useCreateRun, useEnqueue, useImport } from "../hooks/use-run-mutations";
 import { describeInvalidLines, parseUrlList } from "../url-list";
 import { projectOptions } from "./project-options";
 import styles from "./RunDialogs.module.scss";
@@ -54,12 +54,15 @@ export function NewRunDialog({
   const projectsQuery = useProjects(client);
   const createRun = useCreateRun(client);
   const enqueue = useEnqueue(client);
+  const importSheet = useImport(client);
 
   const [projectId, setProjectId] = useState(
     initialProjectId === undefined ? "" : String(initialProjectId),
   );
   const [label, setLabel] = useState("");
   const [urlText, setUrlText] = useState("");
+  // A chosen sheet takes precedence over pasted URLs (never both).
+  const [file, setFile] = useState<File | null>(null);
   // Drive edits the user has made for the selected project; `null` means
   // "untouched", so the value falls back to the project's recipe default.
   const [driveEdit, setDriveEdit] = useState<boolean | null>(null);
@@ -106,7 +109,8 @@ export function NewRunDialog({
     return overrides;
   }
 
-  const busy = createRun.isPending || enqueue.isPending;
+  const busy =
+    createRun.isPending || enqueue.isPending || importSheet.isPending;
 
   async function submit() {
     setError(null);
@@ -114,7 +118,10 @@ export function NewRunDialog({
       setError("Choose a project for this run.");
       return;
     }
-    const { urls, invalid } = parseUrlList(urlText);
+    // The sheet wins, so pasted text is not validated when a file is chosen.
+    const { urls, invalid } = file
+      ? { urls: [], invalid: [] }
+      : parseUrlList(urlText);
     if (invalid.length > 0) {
       setError(describeInvalidLines(invalid));
       return;
@@ -136,8 +143,23 @@ export function NewRunDialog({
       setCreatedRun(run);
     }
 
-    // URLs are optional; the server rejects an empty list, so never send one.
-    if (urls.length > 0) {
+    if (file) {
+      try {
+        const result = await importSheet.mutateAsync({ file, runId: run.id });
+        if (!result.ok) {
+          setError(
+            `Run #${run.id} was created, but the sheet was not imported: ${result.error}`,
+          );
+          return;
+        }
+      } catch (failure) {
+        setError(
+          `Run #${run.id} was created, but the sheet was not imported: ${messageOf(failure)}`,
+        );
+        return;
+      }
+    } else if (urls.length > 0) {
+      // URLs are optional; the server rejects an empty list, so never send one.
       try {
         const result = await enqueue.mutateAsync({ runId: run.id, urls });
         if (!result.ok) {
@@ -156,7 +178,11 @@ export function NewRunDialog({
     onClose();
   }
 
-  const submitLabel = createdRun ? "Add URLs" : "Create run";
+  const submitLabel = createdRun
+    ? file
+      ? "Add items"
+      : "Add URLs"
+    : "Create run";
 
   return (
     <Modal
@@ -206,6 +232,20 @@ export function NewRunDialog({
           placeholder={"https://example.com/chapter-1\nhttps://example.com/chapter-2"}
         />
       </Field>
+      <Field htmlFor={`${ids}-file`} label="Or upload a sheet">
+        <input
+          id={`${ids}-file`}
+          type="file"
+          accept=".csv,.tsv,.txt,.xlsx,.xls"
+          className={styles.fileInput}
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        />
+      </Field>
+      <Text variant="small" tone="secondary" className={styles.hint}>
+        {file
+          ? "The sheet will be imported; any pasted URLs are ignored."
+          : "Upload a csv, tsv, txt, xlsx or xls file with a column of URLs."}
+      </Text>
       {showDrive ? (
         <div className={styles.driveSection}>
           <Field htmlFor={`${ids}-format`} label="Output format">

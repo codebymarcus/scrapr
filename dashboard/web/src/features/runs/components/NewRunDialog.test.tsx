@@ -47,6 +47,24 @@ const projects = [
   }),
 ];
 
+const sheetFile = () =>
+  new File(["url\nhttps://a.test/1\n"], "links.csv", { type: "text/csv" });
+
+// A multipart import body is recorded as { file: <filename>, runId? }; JSON
+// bodies (run create, enqueue) are parsed as before.
+function readBody(init: RequestInit | undefined): unknown {
+  if (!init?.body) return undefined;
+  if (init.body instanceof FormData) {
+    const file = init.body.get("file");
+    const runId = init.body.get("runId");
+    return {
+      file: file instanceof File ? file.name : null,
+      ...(runId === null ? {} : { runId }),
+    };
+  }
+  return JSON.parse(String(init.body)) as unknown;
+}
+
 function setup(
   handlers: Record<string, (call: Call) => Response> = {},
 ) {
@@ -57,7 +75,7 @@ function setup(
     const call: Call = {
       path,
       method,
-      body: init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined,
+      body: readBody(init),
     };
     calls.push(call);
     const handler = handlers[`${method} ${path}`];
@@ -139,6 +157,96 @@ describe("NewRunDialog", () => {
         { urls: ["https://a.test/1", "http://b.test/2"] },
       ],
     ]);
+  });
+
+  it("imports the chosen sheet into the new run", async () => {
+    const { writes, onClose, invalidate } = setup({
+      "POST /api/runs/import": () => json({ added: 12 }),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.upload(
+      screen.getByLabelText("Or upload a sheet"),
+      sheetFile(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes().map((call) => [call.path, call.body])).toEqual([
+      ["/api/runs", { projectId: 1 }],
+      ["/api/runs/import", { file: "links.csv", runId: "9" }],
+    ]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: runKeys.lists() });
+  });
+
+  it("prefers the sheet over pasted urls and never does both", async () => {
+    const { writes, onClose } = setup({
+      "POST /api/runs/import": () => json({ added: 1 }),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.type(screen.getByLabelText(/URLs/), "https://p.test/1");
+    await userEvent.upload(
+      screen.getByLabelText("Or upload a sheet"),
+      sheetFile(),
+    );
+    expect(screen.getByText(/pasted URLs are ignored/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes().map((call) => call.path)).toEqual([
+      "/api/runs",
+      "/api/runs/import",
+    ]);
+  });
+
+  it("keeps the run and retries only the import when the sheet is rejected", async () => {
+    let attempt = 0;
+    const { writes, onClose } = setup({
+      "POST /api/runs/import": () =>
+        ++attempt === 1
+          ? json({ error: "Unsupported file type" }, 400)
+          : json({ added: 3 }),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.upload(
+      screen.getByLabelText("Or upload a sheet"),
+      sheetFile(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Run #9 was created");
+    expect(alert).toHaveTextContent("Unsupported file type");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add items" }));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes().map((call) => call.path)).toEqual([
+      "/api/runs",
+      "/api/runs/import",
+      "/api/runs/import",
+    ]);
+  });
+
+  it("shows a 409 from the import and keeps the run", async () => {
+    const { onClose } = setup({
+      "POST /api/runs/import": () =>
+        json({ error: "Cannot add items to a running run" }, 409),
+    });
+
+    await pickProject("Alpha");
+    await userEvent.upload(
+      screen.getByLabelText("Or upload a sheet"),
+      sheetFile(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot add items to a running run",
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("never posts an empty url list", async () => {
