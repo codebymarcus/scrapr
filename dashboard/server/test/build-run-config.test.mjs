@@ -160,3 +160,63 @@ test("built-in recipe honors recipe.output but still sets no imageRules or text 
   assert.equal(cfg.text, false);
   assert.equal(cfg.imageRules, undefined);
 });
+
+test("format override 'pdf' sets pdf packaging and converts images to jpg", () => {
+  const cfg = buildRunConfig(
+    { name: "I", contentType: "image", output: { cbz: true } },
+    { runOutDir: "/o", overrides: { format: "pdf" } },
+  );
+  assert.equal(cfg.pdf, true);
+  assert.equal(cfg.cbz, false);
+  assert.equal(cfg.keepLoose, false);
+  assert.equal(cfg.format, "jpg"); // normalized from DEFAULTS "keep" for PDF
+});
+
+test("format override 'cbz' packages cbz and leaves format untouched", () => {
+  const cfg = buildRunConfig(
+    { name: "I", contentType: "image" },
+    { runOutDir: "/o", overrides: { format: "cbz" } },
+  );
+  assert.equal(cfg.cbz, true);
+  assert.equal(cfg.pdf, false);
+  assert.equal(cfg.keepLoose, false);
+  assert.equal(cfg.format, "keep"); // cbz does not force conversion
+});
+
+test("format override 'both' packages cbz+pdf and forces jpg", () => {
+  const cfg = buildRunConfig(
+    { name: "I", contentType: "image" },
+    { runOutDir: "/o", overrides: { format: "both" } },
+  );
+  assert.equal(cfg.cbz, true);
+  assert.equal(cfg.pdf, true);
+  assert.equal(cfg.format, "jpg");
+});
+
+test("format override 'loose' keeps images unpackaged", () => {
+  const cfg = buildRunConfig(
+    { name: "I", contentType: "image", output: { cbz: true } },
+    { runOutDir: "/o", overrides: { format: "loose" } },
+  );
+  assert.equal(cfg.cbz, false);
+  assert.equal(cfg.pdf, false);
+  assert.equal(cfg.keepLoose, true);
+});
+
+test("pdf with recipe format png is not downgraded to jpg", () => {
+  const cfg = buildRunConfig(
+    { name: "I", contentType: "image", output: { pdf: true, format: "png" } },
+    { runOutDir: "/o" },
+  );
+  assert.equal(cfg.pdf, true);
+  assert.equal(cfg.format, "png");
+});
+
+test("built-in recipe honors a format override", () => {
+  const cfg = buildRunConfig(
+    { name: "B", contentType: "image", builtIn: true, builtInProfile: "x" },
+    { runOutDir: "/o", overrides: { format: "pdf" } },
+  );
+  assert.equal(cfg.pdf, true);
+  assert.equal(cfg.format, "jpg");
+});

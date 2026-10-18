@@ -159,3 +159,22 @@ test("secrets: set/get round-trips, unknown is null, set upserts, delete removes
   assert.equal(store.getSecret("drive.token"), null);
   db.close();
 });
+
+test("failInterruptedRuns marks running runs failed, leaves others", () => {
+  const { store } = setup();
+  const project = store.createProject({ name: "P", recipe: {} });
+  const running = store.createRun({ projectId: project.id });
+  store.setRunState(running.id, "running");
+  const queued = store.createRun({ projectId: project.id });
+  const done = store.createRun({ projectId: project.id });
+  store.setRunState(done.id, "done");
+
+  const count = store.failInterruptedRuns();
+  assert.equal(count, 1);
+  assert.equal(store.getRun(running.id).state, "failed");
+  assert.ok(store.getRun(running.id).finished_at);
+  assert.equal(store.getRun(queued.id).state, "queued");
+  assert.equal(store.getRun(done.id).state, "done");
+
+  assert.equal(store.failInterruptedRuns(), 0); // idempotent: none left running
+});

@@ -41,6 +41,12 @@ export function createStore(db) {
     nextQueuedRun: db.prepare(
       "SELECT * FROM runs WHERE state = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1",
     ),
+    deleteRunItems: db.prepare("DELETE FROM run_items WHERE run_id = ?"),
+    deleteRun: db.prepare("DELETE FROM runs WHERE id = ?"),
+    failRunningRuns: db.prepare(
+      `UPDATE runs SET state = 'failed', finished_at = COALESCE(finished_at, ?)
+       WHERE state = 'running'`,
+    ),
 
     maxPosition: db.prepare(
       "SELECT COALESCE(MAX(position), -1) AS max FROM run_items WHERE run_id = ?",
@@ -71,6 +77,12 @@ export function createStore(db) {
       position += 1;
       q.insertItem.run(runId, url, position);
     }
+  });
+
+  // Delete a run and its items atomically (items first: no orphaned rows).
+  const deleteRunTx = db.transaction((id) => {
+    q.deleteRunItems.run(id);
+    q.deleteRun.run(id);
   });
 
   function getProject(id) {
@@ -139,6 +151,14 @@ export function createStore(db) {
     },
     nextQueuedRun() {
       return runFromRow(q.nextQueuedRun.get());
+    },
+    deleteRun(id) {
+      deleteRunTx(id);
+    },
+    // Recovery: a run left in "running" after a crash/restart has no live
+    // process, so mark it failed. Returns how many were reconciled.
+    failInterruptedRuns() {
+      return q.failRunningRuns.run(now()).changes;
     },
 
     // Secrets: opaque (already-encrypted) strings; the store does no crypto.

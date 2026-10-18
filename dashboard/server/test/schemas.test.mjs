@@ -98,6 +98,20 @@ test("createRunSchema accepts valid overrides and rejects a wrong-typed one", ()
   assert.equal(createRunSchema.safeParse({ projectId: 1, overrides: { driveFolder: 5 } }).success, false);
 });
 
+test("createRunSchema accepts a valid format override and rejects an unknown one", () => {
+  for (const format of ["cbz", "pdf", "both", "loose"]) {
+    assert.equal(
+      createRunSchema.safeParse({ projectId: 1, overrides: { format } }).success,
+      true,
+      format,
+    );
+  }
+  assert.equal(
+    createRunSchema.safeParse({ projectId: 1, overrides: { format: "zip" } }).success,
+    false,
+  );
+});
+
 test("enqueueSchema accepts http(s) urls", () => {
   const r = enqueueSchema.safeParse({ urls: ["http://a.com/x", "https://b.com/y"] });
   assert.equal(r.success, true);

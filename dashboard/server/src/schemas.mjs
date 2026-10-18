@@ -87,12 +87,14 @@ export const updateProjectSchema = z.object({
 export const createRunSchema = z.object({
   projectId: z.number(),
   label: z.string().optional(),
-  // Per-run Drive overrides, merged into the engine config at execution time (never the recipe).
+  // Per-run output/Drive overrides, merged into the engine config at execution time (never the recipe).
   overrides: z
     .object({
       drive: z.boolean().optional(),
       driveFolder: z.string().optional(),
       driveSubfolder: z.string().optional(),
+      // Output packaging: picks the engine's cbz/pdf/keepLoose flags.
+      format: z.enum(["cbz", "pdf", "both", "loose"]).optional(),
     })
     .optional(),
 });

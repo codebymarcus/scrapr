@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -306,5 +306,41 @@ test("image results: outputs listing, empty when none", async () => {
   assert.deepEqual(full.json().outputs, [{ name: "chapter-1.cbz", size: 1 }]);
 
   assert.equal((await app.inject({ method: "GET", url: "/api/runs/999/results" })).statusCode, 404);
+  await teardown(ctx);
+});
+
+test("delete run: removes the run, its items, and its output dir", async () => {
+  const ctx = setup();
+  const { app, project, store, outRoot } = ctx;
+  const { body } = await createRun(app, project.id);
+  const id = body.run.id;
+  await app.inject({ method: "POST", url: `/api/runs/${id}/items`, payload: { urls: ["https://example.com/a"] } });
+  mkdirSync(join(outRoot, String(id)), { recursive: true });
+  writeFileSync(join(outRoot, String(id), "chapter-1.cbz"), "x");
+
+  const del = await app.inject({ method: "DELETE", url: `/api/runs/${id}` });
+  assert.equal(del.statusCode, 200);
+  assert.deepEqual(del.json(), { deleted: true });
+
+  assert.equal(store.getRun(id), null);
+  assert.deepEqual(store.listItems(id), []);
+  assert.equal(existsSync(join(outRoot, String(id))), false);
+  assert.equal((await app.inject({ method: "GET", url: "/api/runs" })).json().runs.length, 0);
+  await teardown(ctx);
+});
+
+test("delete run: 409 while running, 404 unknown, 400 bad id", async () => {
+  const ctx = setup();
+  const { app, project, store } = ctx;
+  const { body } = await createRun(app, project.id);
+  const id = body.run.id;
+  store.setRunState(id, "running");
+
+  const running = await app.inject({ method: "DELETE", url: `/api/runs/${id}` });
+  assert.equal(running.statusCode, 409);
+  assert.ok(store.getRun(id)); // not deleted
+
+  assert.equal((await app.inject({ method: "DELETE", url: "/api/runs/999" })).statusCode, 404);
+  assert.equal((await app.inject({ method: "DELETE", url: "/api/runs/abc" })).statusCode, 400);
   await teardown(ctx);
 });

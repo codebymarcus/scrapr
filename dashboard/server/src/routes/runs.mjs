@@ -1,4 +1,4 @@
-import { readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -199,6 +199,24 @@ export async function runRoutes(app, { store, runManager, runOutDir = defaultRun
         return { contentType, records: await readTextRecords(outDir) };
       }
       return { contentType, outputs: await listImageOutputs(outDir) };
+    }),
+  );
+
+  // Delete a run: its items and its output dir go too. A running run must be
+  // stopped first (409). Already-uploaded Drive files are never touched.
+  app.delete(
+    "/api/runs/:id",
+    withId(async (id, request, reply) => {
+      const run = store.getRun(id);
+      if (!run) return reply.code(404).send({ error: "Run not found" });
+      if (run.state === "running") {
+        return reply.code(409).send({ error: "Cannot delete a running run (stop it first)" });
+      }
+      // Remove outputs before the DB row: force ignores a missing dir, so a
+      // run that never produced output deletes cleanly.
+      await rm(runOutDir(run), { recursive: true, force: true });
+      store.deleteRun(id);
+      return { deleted: true };
     }),
   );
 

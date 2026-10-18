@@ -12,12 +12,18 @@ services:
     build:
       context: .
       dockerfile: dashboard/server/Dockerfile
+    # Drive OAuth / APP_SECRET_KEY can live in dashboard/server/.env (gitignored).
+    # required: false → the stack still starts when the file is absent.
+    env_file:
+      - path: ./dashboard/server/.env
+        required: false
     environment:
       HOST: 0.0.0.0
       PORT: "5174"
       NODE_ENV: production
       # Google Drive (recommended): the dashboard's in-app "Connect Google
-      # Drive" button. Uncomment and fill these in, then restart.
+      # Drive" button. Set these here OR in dashboard/server/.env (see env_file
+      # above), then restart.
       #   Client ID/secret: a Google Cloud OAuth "Web application" client.
       # GOOGLE_OAUTH_CLIENT_ID: "<client-id>.apps.googleusercontent.com"
       # GOOGLE_OAUTH_CLIENT_SECRET: "<client-secret>"

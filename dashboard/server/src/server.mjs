@@ -1,3 +1,5 @@
+// Must be first: loads dashboard/server/.env before config.mjs reads process.env.
+import "./load-env.mjs";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp } from "./app.mjs";
@@ -26,6 +28,12 @@ mkdirSync(DATA_DIR, { recursive: true });
 const db = openDb(join(DATA_DIR, "scrapr.db"));
 migrate(db);
 const store = createStore(db);
+// Crash/restart recovery: no scrape survives a server exit, so any run still
+// marked "running" is orphaned — reconcile it to "failed" so it's not stuck.
+const interrupted = store.failInterruptedRuns();
+if (interrupted > 0) {
+  console.log(`reconciled ${interrupted} interrupted run(s) to failed`);
+}
 const hub = createHub();
 // Boots fine without the OAuth env/key; Drive then reports "not-configured".
 const driveAuth = createDriveAuth({

@@ -14,10 +14,29 @@ function copyOutput(config, output = {}) {
 // Per-run Drive overrides (image output only); unset keys keep what the recipe/engine set.
 const OVERRIDE_KEYS = ["drive", "driveFolder", "driveSubfolder"];
 
+// A per-run output format maps to the engine's cbz/pdf/keepLoose packaging flags.
+// "loose" keeps the images unpackaged; the others package and drop the loose copies.
+const FORMAT_FLAGS = {
+  cbz: { cbz: true, pdf: false, keepLoose: false },
+  pdf: { cbz: false, pdf: true, keepLoose: false },
+  both: { cbz: true, pdf: true, keepLoose: false },
+  loose: { cbz: false, pdf: false, keepLoose: true },
+};
+
 function applyOverrides(config, overrides) {
   for (const key of OVERRIDE_KEYS) {
     if (overrides?.[key] !== undefined) config[key] = overrides[key];
   }
+  const flags = overrides?.format && FORMAT_FLAGS[overrides.format];
+  if (flags) Object.assign(config, flags);
+}
+
+// Mirror the CLI's finalize() packaging normalization (src/config.mjs): PDF
+// embeds baseline JPEG/PNG, so images must be converted away from "keep" before
+// the pdf packager wraps them — otherwise the PDF comes out empty/broken.
+function normalizePackaging(config) {
+  config.format = String(config.format).toLowerCase();
+  if (config.pdf && config.format !== "png") config.format = "jpg";
 }
 
 // Translate a recipe into the engine's flat config. `url`/`listFile` stay null: the
@@ -38,6 +57,7 @@ export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
   if (recipe.builtIn) {
     copyOutput(config, recipe.output);
     applyOverrides(config, overrides);
+    normalizePackaging(config);
     return config;
   }
 
@@ -55,6 +75,7 @@ export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
 
   copyOutput(config, recipe.output);
   applyOverrides(config, overrides);
+  normalizePackaging(config);
   config.imageRules = imageRulesFromRecipe(recipe);
   return config;
 }

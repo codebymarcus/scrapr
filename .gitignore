@@ -5,6 +5,11 @@ node_modules/
 credentials.json
 token.json
 
+# Environment files with secrets (OAuth client, APP_SECRET_KEY — never commit)
+.env
+*.env
+!*.env.example
+
 # Personal settings file (copy scraper.config.example.json → scraper.config.json)
 scraper.config.json
 
