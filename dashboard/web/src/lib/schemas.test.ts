@@ -93,6 +93,26 @@ describe("itemSchema / runDetailSchema", () => {
     expect(itemSchema.safeParse(item).success).toBe(true);
   });
 
+  it("keeps the output/upload fields and treats them as optional", () => {
+    const parsed = itemSchema.parse({
+      ...item,
+      output_name: "Ch 1.cbz",
+      uploaded_at: "2026-10-18T00:00:00Z",
+      drive_link: "https://drive.example/f/1",
+    });
+    expect(parsed.output_name).toBe("Ch 1.cbz");
+    expect(parsed.uploaded_at).toBe("2026-10-18T00:00:00Z");
+    expect(parsed.drive_link).toBe("https://drive.example/f/1");
+    expect(
+      itemSchema.safeParse({
+        ...item,
+        output_name: null,
+        uploaded_at: null,
+        drive_link: null,
+      }).success,
+    ).toBe(true);
+  });
+
   it("accepts a run detail", () => {
     const result = runDetailSchema.safeParse({
       run: { id: 1, project_id: 1, state: "done" },
@@ -173,10 +193,32 @@ describe("runEventSchema", () => {
       ok: true,
       needsReview: false,
     },
+    {
+      type: "item",
+      id: 1,
+      outputName: "Ch 1.cbz",
+      uploaded: true,
+      driveLink: "https://drive.example/f/1",
+    },
     { type: "state", state: "done" },
   ])("parses a $type event", (event) => {
     const result = runEventSchema.safeParse(event);
     expect(result.success).toBe(true);
+  });
+
+  it("keeps the output/upload fields on an item event", () => {
+    const parsed = runEventSchema.parse({
+      type: "item",
+      id: 1,
+      outputName: "Ch 1.cbz",
+      uploaded: true,
+      driveLink: "https://drive.example/f/1",
+    });
+    expect(parsed).toMatchObject({
+      outputName: "Ch 1.cbz",
+      uploaded: true,
+      driveLink: "https://drive.example/f/1",
+    });
   });
 
   it("rejects an unknown event type", () => {

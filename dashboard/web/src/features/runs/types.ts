@@ -1,4 +1,28 @@
-import type { Run, RunDetail } from "@/lib/schemas";
+import type { Run, RunDetail, RunItem } from "@/lib/schemas";
+
+/** Display status of one item, derived from its stored row. */
+export type RunItemStatus = "completed" | "pending" | "skipped" | "failed";
+
+export function deriveItemStatus(item: RunItem): RunItemStatus {
+  if (item.saved != null && item.status === "done") {
+    return "completed";
+  }
+  if (item.status === "retry") {
+    return "failed";
+  }
+  if (item.status === "skip" || item.reason?.startsWith("skipped:")) {
+    return "skipped";
+  }
+  // A recorded failure: a reason was stored and the item did not complete.
+  if (item.reason) {
+    return "failed";
+  }
+  return "pending";
+}
+
+export function isUploaded(item: RunItem): boolean {
+  return item.uploaded_at != null;
+}
 
 export type RunProgress = {
   /** Items that have a recorded result. */

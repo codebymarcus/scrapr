@@ -107,6 +107,10 @@ export const itemSchema = z.object({
   // SQLite stores a 0/1 integer.
   needs_review: z.union([z.number(), z.boolean()]).nullish(),
   position: z.number().nullish(),
+  // Packaged output file name, and where/when it was uploaded to Drive.
+  output_name: z.string().nullish(),
+  uploaded_at: z.string().nullish(),
+  drive_link: z.string().nullish(),
 });
 
 export const runDetailSchema = z.object({
@@ -192,6 +196,9 @@ export const runEventSchema = z.discriminatedUnion("type", [
     total: z.number().nullish(),
     ok: z.boolean().optional(),
     needsReview: z.boolean().optional(),
+    outputName: z.string().nullish(),
+    uploaded: z.boolean().optional(),
+    driveLink: z.string().nullish(),
     ts: z.number().optional(),
   }),
   z.object({
