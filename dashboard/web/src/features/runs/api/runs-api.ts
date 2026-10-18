@@ -39,6 +39,13 @@ export function stopRun(
   return client.post(`/api/runs/${id}/stop`, {});
 }
 
+export function deleteRun(
+  id: number,
+  client: ApiClient = dashboardClient,
+): Promise<void> {
+  return client.del(`/api/runs/${id}`);
+}
+
 const createRunEnvelopeSchema = z.object({ run: runSchema });
 const addedSchema = z.object({ added: z.number() });
 // `/api/runs/import`: `{ added }` when a runId was given, else `{ urls }`.
@@ -49,11 +56,15 @@ const importResponseSchema = z.union([
 
 export type ImportResponse = z.infer<typeof importResponseSchema>;
 
-/** Per-run Drive settings; only keys that are present override the recipe. */
+/** Output packaging for a run; maps to the engine's cbz/pdf/keepLoose flags. */
+export type RunFormat = "cbz" | "pdf" | "both" | "loose";
+
+/** Per-run output/Drive settings; only keys that are present override the recipe. */
 export type RunOverrides = {
   drive?: boolean;
   driveFolder?: string;
   driveSubfolder?: string;
+  format?: RunFormat;
 };
 
 export type CreateRunInput = {

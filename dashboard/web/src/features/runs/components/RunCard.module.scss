@@ -71,3 +71,15 @@
 .console {
   min-width: 0;
 }
+
+// Delete sits apart from the primary actions (push to the right when it's the
+// only action, e.g. a finished run).
+.delete {
+  margin-left: auto;
+  color: var(--color-negative);
+}
+
+.confirmDelete {
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+}

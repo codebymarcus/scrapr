@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { dashboardClient } from "@/lib/api-client";
 import { ApiError } from "@/lib/http/api-error";
 import type { ApiClient } from "@/lib/http/api-client";
-import { startRun, stopRun } from "../api/runs-api";
+import { deleteRun, startRun, stopRun } from "../api/runs-api";
 import { runKeys } from "./runs-keys";
 
 /** A conflict (409) is an expected outcome, so it is data, not a throw. */
@@ -63,6 +63,12 @@ export function useRunActions(
     onSuccess: refresh,
     onError: fail,
   });
+  // Delete rejects a running run with 409 (settle turns that into a message).
+  const remove = useMutation({
+    mutationFn: (id: number) => settle(() => deleteRun(id, client)),
+    onSuccess: refresh,
+    onError: fail,
+  });
 
-  return { start, stop, resume };
+  return { start, stop, resume, remove };
 }

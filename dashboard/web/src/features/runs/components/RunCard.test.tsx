@@ -176,9 +176,69 @@ describe("RunCard", () => {
     ).toBeInTheDocument();
   });
 
-  it("offers no actions on finished runs", () => {
-    renderCard({ run: makeRun({ id: 5, state: "done" }) });
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  it("offers only Delete on a finished run (no start/stop/resume)", () => {
+    renderCard({ run: makeRun({ id: 5, label: "Done one", state: "done" }) });
+    expect(
+      screen.getByRole("button", { name: "Delete Done one" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^(Start|Stop|Resume) / }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("deletes a run after confirmation and calls DELETE", async () => {
+    const { client, fetchFn } = makeClient(() => json({ deleted: true }));
+    renderCard({ run: makeRun({ id: 6, label: "Trash me", state: "done" }), client });
+
+    // First click asks for confirmation; nothing is sent yet.
+    await userEvent.click(screen.getByRole("button", { name: "Delete Trash me" }));
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Confirm delete Trash me" }),
+    );
+    await waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith(
+        "http://test.local/api/runs/6",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+  });
+
+  it("cancels a delete without sending a request", async () => {
+    const { client, fetchFn } = makeClient(() => json({ deleted: true }));
+    renderCard({ run: makeRun({ id: 7, label: "Keep me", state: "stopped" }), client });
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete Keep me" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel delete Keep me" }));
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Delete Keep me" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer Delete on a running run", () => {
+    renderCard({ run: makeRun({ id: 8, label: "Busy", state: "running" }) });
+    expect(
+      screen.queryByRole("button", { name: "Delete Busy" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the server's message inline when delete returns 409", async () => {
+    const { client } = makeClient(() =>
+      json({ error: "Cannot delete a running run (stop it first)" }, 409),
+    );
+    renderCard({ run: makeRun({ id: 9, label: "Racing", state: "stopped" }), client });
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete Racing" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Confirm delete Racing" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot delete a running run",
+    );
   });
 
   it("shows the server's message inline when an action returns 409", async () => {

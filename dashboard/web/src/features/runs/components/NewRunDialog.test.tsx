@@ -270,7 +270,8 @@ describe("NewRunDialog", () => {
       await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
       expect(writes()[0]?.body).toEqual({
         projectId: 4,
-        overrides: { drive: true, driveFolder: "abc123" },
+        // Drive on + a recipe with no package defaults to CBZ (loose can't upload).
+        overrides: { drive: true, format: "cbz", driveFolder: "abc123" },
       });
     });
 
@@ -284,7 +285,7 @@ describe("NewRunDialog", () => {
 
       await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
       const body = writes()[0]?.body as { overrides: Record<string, unknown> };
-      expect(body.overrides).toEqual({ drive: true });
+      expect(body.overrides).toEqual({ drive: true, format: "cbz" });
       expect(body.overrides).not.toHaveProperty("driveFolder");
       expect(body.overrides).not.toHaveProperty("driveSubfolder");
     });
@@ -311,6 +312,51 @@ describe("NewRunDialog", () => {
 
       await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
       expect(writes()[0]?.body).toEqual({ projectId: 1 });
+    });
+
+    it("defaults the format picker to the recipe and posts it", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Plain images");
+      // No package in the recipe and Drive off → loose images.
+      expect(screen.getByLabelText("Output format")).toHaveValue("loose");
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+      expect(body.overrides).toMatchObject({ drive: false, format: "loose" });
+    });
+
+    it("posts the chosen output format", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Plain images");
+      await userEvent.selectOptions(screen.getByLabelText("Output format"), "pdf");
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+      expect(body.overrides).toMatchObject({ format: "pdf" });
+    });
+
+    it("drops the Loose option and coerces to a package when Drive is on", async () => {
+      const { writes, onClose } = setup();
+
+      await pickProject("Plain images");
+      await userEvent.selectOptions(screen.getByLabelText("Output format"), "loose");
+      await userEvent.click(
+        screen.getByRole("switch", { name: "Upload to Drive" }),
+      );
+
+      // With Drive on, "Loose images only" is no longer offered.
+      expect(
+        screen.queryByRole("option", { name: "Loose images only" }),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+      const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+      expect(body.overrides).toMatchObject({ drive: true, format: "cbz" });
     });
   });
 });

@@ -73,11 +73,14 @@ export function RunCard({
 
   const [consoleOpen, setConsoleOpen] = useState(false);
   const consoleId = useId();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const { start, stop, resume } = useRunActions(client, {
+  const { start, stop, resume, remove } = useRunActions(client, {
     onFailure: onActionError,
   });
-  const busy = [start, stop, resume].some((mutation) => mutation.isPending);
+  const busy = [start, stop, resume, remove].some(
+    (mutation) => mutation.isPending,
+  );
 
   function fire(mutation: typeof start) {
     onActionError?.(run.id, null);
@@ -156,6 +159,43 @@ export function RunCard({
             <ListIcon />
             Console
           </Button>
+        ) : null}
+        {/* Delete: only for non-running runs; a running run must be stopped first. */}
+        {!isRunning && !confirmingDelete ? (
+          <Button
+            className={styles.delete}
+            disabled={busy}
+            aria-label={`Delete ${name}`}
+            onClick={() => {
+              onActionError?.(run.id, null);
+              setConfirmingDelete(true);
+            }}
+          >
+            Delete
+          </Button>
+        ) : null}
+        {!isRunning && confirmingDelete ? (
+          <>
+            <Button
+              className={styles.confirmDelete}
+              disabled={busy}
+              aria-label={`Confirm delete ${name}`}
+              onClick={() =>
+                remove.mutate(run.id, {
+                  onSettled: () => setConfirmingDelete(false),
+                })
+              }
+            >
+              Confirm delete
+            </Button>
+            <Button
+              disabled={busy}
+              aria-label={`Cancel delete ${name}`}
+              onClick={() => setConfirmingDelete(false)}
+            >
+              Cancel
+            </Button>
+          </>
         ) : null}
       </div>
 

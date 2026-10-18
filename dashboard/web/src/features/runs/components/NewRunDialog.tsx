@@ -9,8 +9,8 @@ import { Modal } from "@/components/molecules/Modal";
 import { useProjects } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
-import type { Run } from "@/lib/schemas";
-import type { RunOverrides } from "../api/runs-api";
+import type { Recipe, Run } from "@/lib/schemas";
+import type { RunFormat, RunOverrides } from "../api/runs-api";
 import { useCreateRun, useEnqueue } from "../hooks/use-run-mutations";
 import { describeInvalidLines, parseUrlList } from "../url-list";
 import { projectOptions } from "./project-options";
@@ -27,6 +27,23 @@ type NewRunDialogProps = {
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
+
+// The recipe's packaging flags collapse to a single picker value.
+function recipeFormat(recipe: Recipe | undefined): RunFormat {
+  const cbz = recipe?.output?.cbz;
+  const pdf = recipe?.output?.pdf;
+  if (cbz && pdf) return "both";
+  if (pdf) return "pdf";
+  if (cbz) return "cbz";
+  return "loose";
+}
+
+const FORMAT_LABELS: Record<RunFormat, string> = {
+  cbz: "CBZ",
+  pdf: "PDF",
+  both: "Both (CBZ + PDF)",
+  loose: "Loose images only",
+};
 
 export function NewRunDialog({
   onClose,
@@ -48,6 +65,7 @@ export function NewRunDialog({
   const [driveEdit, setDriveEdit] = useState<boolean | null>(null);
   const [folderEdit, setFolderEdit] = useState<string | null>(null);
   const [subfolderEdit, setSubfolderEdit] = useState<string | null>(null);
+  const [formatEdit, setFormatEdit] = useState<RunFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Set once the run exists, so a failed enqueue can be retried without
   // creating a second run.
@@ -61,19 +79,28 @@ export function NewRunDialog({
   const drive = driveEdit ?? recipe?.output?.drive ?? false;
   const folder = folderEdit ?? recipe?.output?.driveFolder ?? "";
   const subfolder = subfolderEdit ?? recipe?.output?.driveSubfolder ?? "";
+  // Loose images can't be uploaded, so when Drive is on, coerce/limit to a
+  // packaged format (the upload would otherwise silently find nothing to send).
+  const chosenFormat = formatEdit ?? recipeFormat(recipe);
+  const format: RunFormat = drive && chosenFormat === "loose" ? "cbz" : chosenFormat;
+  const formatOptions = (drive
+    ? (["cbz", "pdf", "both"] as const)
+    : (["cbz", "pdf", "both", "loose"] as const)
+  ).map((value) => ({ value, label: FORMAT_LABELS[value] }));
 
   function chooseProject(value: string) {
     setProjectId(value);
     setDriveEdit(null);
     setFolderEdit(null);
     setSubfolderEdit(null);
+    setFormatEdit(null);
   }
 
   // The server applies only the keys that are present, so a blank folder must
   // be omitted rather than sent as "" (which would erase the recipe's folder).
   function buildOverrides(): RunOverrides | undefined {
     if (!showDrive) return undefined;
-    const overrides: RunOverrides = { drive };
+    const overrides: RunOverrides = { drive, format };
     if (folder.trim()) overrides.driveFolder = folder.trim();
     if (subfolder.trim()) overrides.driveSubfolder = subfolder.trim();
     return overrides;
@@ -181,6 +208,15 @@ export function NewRunDialog({
       </Field>
       {showDrive ? (
         <div className={styles.driveSection}>
+          <Field htmlFor={`${ids}-format`} label="Output format">
+            <Select
+              id={`${ids}-format`}
+              value={format}
+              options={formatOptions}
+              onChange={setFormatEdit}
+              disabled={createdRun !== null}
+            />
+          </Field>
           <label className={styles.toggle}>
             <input
               type="checkbox"
