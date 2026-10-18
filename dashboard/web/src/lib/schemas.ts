@@ -111,11 +111,30 @@ export const itemSchema = z.object({
   output_name: z.string().nullish(),
   uploaded_at: z.string().nullish(),
   drive_link: z.string().nullish(),
+  // Size of the uploaded output and bytes downloaded while scraping.
+  output_size: z.number().nullish(),
+  bytes: z.number().nullish(),
+});
+
+export const runSummarySchema = z.object({
+  durationMs: z.number().nullable(),
+  counts: z.object({
+    total: z.number(),
+    completed: z.number(),
+    failed: z.number(),
+    skipped: z.number(),
+    uploaded: z.number(),
+  }),
+  pages: z.number(),
+  uploadedSize: z.number(),
+  bytesDownloaded: z.number(),
+  cost: z.number(),
 });
 
 export const runDetailSchema = z.object({
   run: runSchema,
   items: z.array(itemSchema),
+  summary: runSummarySchema,
 });
 
 export const previewTextSchema = z.object({
@@ -213,6 +232,7 @@ export type ImageRules = z.infer<typeof imageRulesSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type Run = z.infer<typeof runSchema>;
 export type RunItem = z.infer<typeof itemSchema>;
+export type RunSummary = z.infer<typeof runSummarySchema>;
 export type RunDetail = z.infer<typeof runDetailSchema>;
 export type TextPreview = z.infer<typeof previewTextSchema>;
 export type ImagePreview = z.infer<typeof previewImageSchema>;

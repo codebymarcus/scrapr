@@ -1,6 +1,6 @@
 import { createApiClient } from "@/lib/http/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
-import type { Run, RunItem } from "@/lib/schemas";
+import type { Run, RunItem, RunSummary } from "@/lib/schemas";
 
 export function makeRun(overrides: Partial<Run> & { id: number }): Run {
   return {
@@ -23,6 +23,18 @@ export function makeItem(
     status: "",
     saved: null,
     total: null,
+    ...overrides,
+  };
+}
+
+export function makeSummary(overrides: Partial<RunSummary> = {}): RunSummary {
+  return {
+    durationMs: 45_000,
+    counts: { total: 0, completed: 0, failed: 0, skipped: 0, uploaded: 0 },
+    pages: 0,
+    uploadedSize: 0,
+    bytesDownloaded: 0,
+    cost: 0,
     ...overrides,
   };
 }

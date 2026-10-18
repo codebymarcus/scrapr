@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
 import { runKeys } from "../hooks/runs-keys";
-import { makeItem, makeRun } from "../test/fixtures";
+import { makeItem, makeRun, makeSummary } from "../test/fixtures";
 import { RunCard } from "./RunCard";
 
 type Handler = (path: string) => Response;
@@ -192,7 +192,10 @@ describe("RunCard", () => {
 
     // First click asks for confirmation; nothing is sent yet.
     await userEvent.click(screen.getByRole("button", { name: "Delete Trash me" }));
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "DELETE" }),
+    );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Confirm delete Trash me" }),
@@ -212,7 +215,10 @@ describe("RunCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete Keep me" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel delete Keep me" }));
 
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "DELETE" }),
+    );
     expect(
       screen.getByRole("button", { name: "Delete Keep me" }),
     ).toBeInTheDocument();
@@ -268,7 +274,11 @@ describe("RunCard", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const run = makeRun({ id: 1, state: "running" });
     const { client, fetchFn } = makeClient(() =>
-      json({ run, items: [makeItem({ id: 1, run_id: 1 })] }),
+      json({
+        run,
+        items: [makeItem({ id: 1, run_id: 1 })],
+        summary: makeSummary(),
+      }),
     );
     renderCard({ run, client });
 
@@ -287,7 +297,9 @@ describe("RunCard", () => {
         defaultOptions: { queries: { retry: false } },
       });
       let socket: RunSocket = idleSocket();
-      const { client } = makeClient(() => json({ run, items: [] }));
+      const { client } = makeClient(() =>
+        json({ run, items: [], summary: makeSummary() }),
+      );
       render(
         <QueryClientProvider client={queryClient}>
           <RunCard
@@ -356,13 +368,13 @@ describe("RunCard", () => {
   });
 
   describe("items panel", () => {
-    it("offers an Items toggle on a non-running card and fetches nothing while collapsed", () => {
-      const { client, fetchFn } = makeClient();
+    it("offers a collapsed Items toggle on a non-running card", () => {
+      const { client } = makeClient();
       renderCard({ run: makeRun({ id: 2, state: "done" }), client });
 
       const toggle = screen.getByRole("button", { name: /items/i });
       expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(fetchFn).not.toHaveBeenCalled();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
     });
 
     it("fetches the detail when expanded and renders the panel", async () => {
@@ -371,6 +383,7 @@ describe("RunCard", () => {
         json({
           run,
           items: [makeItem({ id: 1, run_id: 2, name: "Chapter One" })],
+          summary: makeSummary(),
         }),
       );
       renderCard({ run, client, contentType: "text" });
@@ -397,6 +410,37 @@ describe("RunCard", () => {
       expect(
         screen.getByRole("button", { name: /console/i }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("run summary", () => {
+    const summary = makeSummary({
+      counts: { total: 3, completed: 2, failed: 1, skipped: 0, uploaded: 2 },
+      pages: 9,
+    });
+
+    it("shows the summary on a finished run", async () => {
+      const { client } = makeClient(() =>
+        json({ run: makeRun({ id: 5, state: "done" }), items: [], summary }),
+      );
+      renderCard({ run: makeRun({ id: 5, state: "done" }), client });
+
+      expect(await screen.findByText("45s")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "2 completed · 1 failed · 0 skipped · 2 uploaded of 3",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("does not show a summary on a queued run", () => {
+      const { client, fetchFn } = makeClient(() =>
+        json({ run: makeRun({ id: 6 }), items: [], summary }),
+      );
+      renderCard({ run: makeRun({ id: 6, state: "queued" }), client });
+
+      expect(screen.queryByText("45s")).not.toBeInTheDocument();
+      expect(fetchFn).not.toHaveBeenCalled();
     });
   });
 });

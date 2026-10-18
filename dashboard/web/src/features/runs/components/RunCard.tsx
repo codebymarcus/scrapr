@@ -20,6 +20,7 @@ import { runName } from "../utils";
 import styles from "./RunCard.module.scss";
 import { RunConsole } from "./RunConsole";
 import { RunItemsPanel } from "./RunItemsPanel";
+import { RunSummary } from "./RunSummary";
 
 // Poll the run detail at this cadence while the live socket is down.
 const POLL_INTERVAL_MS = 3000;
@@ -61,12 +62,19 @@ export function RunCard({
     enabled: isRunning,
     socketFactory,
   });
-  // The Items panel also needs the detail, in any state, once expanded.
+  // A finished run shows its summary; the Items panel needs the detail in
+  // any state once expanded. A finished run is fetched once, never polled.
+  const isFinished =
+    run.state === "done" || run.state === "failed" || run.state === "stopped";
   const [itemsOpen, setItemsOpen] = useState(false);
   const itemsId = useId();
-  const detail = useRun(isRunning || itemsOpen ? run.id : null, client, {
-    refetchInterval: isRunning && !connected ? POLL_INTERVAL_MS : false,
-  });
+  const detail = useRun(
+    isRunning || isFinished || itemsOpen ? run.id : null,
+    client,
+    {
+      refetchInterval: isRunning && !connected ? POLL_INTERVAL_MS : false,
+    },
+  );
   const polledState = detail.data?.run.state;
   useEffect(() => {
     // Polling sees a state change the (list) run prop hasn't caught up with.
@@ -118,6 +126,10 @@ export function RunCard({
             {counts ? `${counts} items` : "—"}
           </span>
         </div>
+      ) : null}
+
+      {isFinished && detail.data?.summary ? (
+        <RunSummary summary={detail.data.summary} />
       ) : null}
 
       <div className={styles.actions}>

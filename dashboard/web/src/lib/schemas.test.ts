@@ -117,6 +117,14 @@ describe("itemSchema / runDetailSchema", () => {
     const result = runDetailSchema.safeParse({
       run: { id: 1, project_id: 1, state: "done" },
       items: [item],
+      summary: {
+        durationMs: null,
+        counts: { total: 1, completed: 1, failed: 0, skipped: 0, uploaded: 0 },
+        pages: 3,
+        uploadedSize: 0,
+        bytesDownloaded: 100,
+        cost: 0,
+      },
     });
     expect(result.success).toBe(true);
   });

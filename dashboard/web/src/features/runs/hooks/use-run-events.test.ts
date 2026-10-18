@@ -4,7 +4,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent } from "@/lib/schemas";
-import { makeItem, makeRun } from "../test/fixtures";
+import { makeItem, makeRun, makeSummary } from "../test/fixtures";
 import type { CachedRunDetail } from "../types";
 import { runKeys } from "./runs-keys";
 import { MAX_LOG_LINES, useRunEvents } from "./use-run-events";
@@ -77,6 +77,7 @@ const seededDetail: CachedRunDetail = {
     makeItem({ id: 10, run_id: 1 }),
     makeItem({ id: 11, run_id: 1 }),
   ],
+  summary: makeSummary(),
 };
 
 describe("useRunEvents", () => {

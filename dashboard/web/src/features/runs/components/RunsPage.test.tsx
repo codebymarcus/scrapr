@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 import { createApiClient } from "@/lib/http/api-client";
 import type { RunSocket } from "../hooks/use-run-events";
 import { makeProject } from "@/test/fixtures";
-import { makeFakeClient, makeItem, makeRun } from "../test/fixtures";
+import {
+  makeFakeClient,
+  makeItem,
+  makeRun,
+  makeSummary,
+} from "../test/fixtures";
 import { RunsPage } from "./RunsPage";
 
 // Never connects, so no real WebSocket is opened from jsdom.
@@ -54,8 +59,9 @@ describe("RunsPage", () => {
             makeItem({ id: 1, run_id: 1, saved: 5, total: 5 }),
             makeItem({ id: 2, run_id: 1 }),
           ],
+          summary: makeSummary(),
         },
-        "/api/runs/2": { run: stopped, items: [] },
+        "/api/runs/2": { run: stopped, items: [], summary: makeSummary() },
       }),
     );
 
@@ -97,8 +103,9 @@ describe("RunsPage", () => {
             makeItem({ id: 2, run_id: 1 }),
             makeItem({ id: 3, run_id: 1 }),
           ],
+          summary: makeSummary(),
         },
-        "/api/runs/2": { run: stopped, items: [] },
+        "/api/runs/2": { run: stopped, items: [], summary: makeSummary() },
       }),
     );
 
@@ -139,7 +146,9 @@ describe("RunsPage", () => {
         serverState = "running";
         return respond({ error: "Cannot start a running run" }, 409);
       }
-      if (path === "/api/runs/2") return respond({ run: current, items: [] });
+      if (path === "/api/runs/2") {
+        return respond({ run: current, items: [], summary: makeSummary() });
+      }
       if (path === "/api/runs") return respond({ runs: [current] });
       return respond({ error: "not found" }, 404);
     };
