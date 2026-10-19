@@ -10,6 +10,14 @@ This handles **virtualized readers** — sites that keep only a few pages in the
 DOM at a time and load the next one when you advance (e.g. batcave.biz comic
 reader) — which a plain HTTP-fetch scraper cannot.
 
+**Two ways to use it:** the **CLI** documented below, or a **web dashboard**
+(project recipes, run queue, live progress, per-item upload controls, Google
+Drive) — see [Dashboard (web UI)](#dashboard-web-ui).
+
+> **First-time setup:** a few files (secrets, local config) must be created
+> before running — each has a committed `*.example` template. See
+> **[SETUP.md](SETUP.md)**.
+
 ## Install (one time)
 
 ```bash
@@ -466,6 +474,48 @@ To be extra polite on a sensitive site:
 node scrape.mjs "<url>" --settle 2000 --jitter 0.5 --rate-limit-base 5000
 ```
 
+## Dashboard (web UI)
+
+Alongside the CLI there's a web dashboard (`dashboard/`) that drives the same
+scrape engine from a browser. Run it with Docker Compose (see
+**[SETUP.md](SETUP.md)** for env files and ports):
+
+```bash
+# production-like (served at http://localhost:8080)
+docker compose up --build
+# hot-reload dev (served at http://localhost:5173)
+docker compose -f compose.yaml -f compose.dev.yaml up --build
+```
+
+What it gives you:
+
+- **Projects & recipes** — a project holds a reusable *recipe* (which site, how
+  to extract, output format, Drive settings), edited in the **Builder**.
+- **New Run form** — pick a project, then supply URLs by **pasting them or
+  uploading a sheet** (csv/tsv/txt/xlsx/xls; a `name`/`title` column names each
+  output). One form; no separate import dialog.
+- **Per-run overrides** (image projects) — choose the **output format**
+  (CBZ / PDF / Both / Loose images), toggle **Drive upload**, and set the **Drive
+  folder ID** + subfolder for that run without changing the project recipe. The
+  folder ID is **remembered per project** (persisted in the browser).
+- **Live console** — a terminal-style stream of the running scrape (per-row
+  progress, "uploading… uploaded", errors).
+- **Items panel** — an expandable per-row table on each run card: **status**
+  (completed / pending / skipped / failed, with the failure reason), **upload**
+  state (image runs), and per-row actions — **Upload** a scraped-but-not-uploaded
+  row, **Retry** a failed row, **Open in Drive**, **Remove** a not-yet-run row —
+  plus bulk **Upload all pending** / **Retry all failed**. Paginated for big lists.
+- **Run summary** — on a finished run: duration, outcome counts, total uploaded
+  size, pages, and bandwidth (cost when a `costPerGb` rate is set).
+- **Delete a run** — removes the run, its items, and its output dir (uploaded
+  Drive files are left alone); a running run must be stopped first.
+- **Connect Google Drive** in Settings (no terminal needed) — see
+  [Dashboard: in-app "Connect Google Drive"](#dashboard-in-app-connect-google-drive).
+
+A scrape that succeeds but whose upload fails is kept as **completed, not
+uploaded** (files are not re-downloaded) — use the row's **Upload** action to
+send it later.
+
 ## Upload to Google Drive
 
 Optionally push each finished `.cbz`/`.pdf` to Google Drive after it's built.
@@ -497,9 +547,10 @@ variables:
 > `http://localhost:5173/api/drive/callback`. Whatever value you choose must also
 > be added under **Authorized redirect URIs** on the Google OAuth client.
 
-Set these in the server's environment (see the commented placeholders in
-`compose.yaml` / `compose.dev.yaml`), restart, then click **Connect Google
-Drive** in Settings. Steps in Google Cloud: create a project → enable the
+Set these in the server's environment — either the commented placeholders in
+`compose.yaml` / `compose.dev.yaml`, or a **`dashboard/server/.env`** file
+(loaded automatically; copy `dashboard/server/.env.example`). Then restart and
+click **Connect Google Drive** in Settings. Steps in Google Cloud: create a project → enable the
 **Google Drive API** → configure the OAuth consent screen (scope
 `.../auth/drive.file`, add your account as a Test user) → create an **OAuth
 client ID → Web application** and add the redirect URI above.
@@ -579,6 +630,20 @@ Extending it stays local: add an output format by writing a new packager and
 registering it in `buildPackagers`; add a link source (a DB, an API) with a new
 class exposing `load()`/`setStatus()`. The runner depends on those interfaces,
 not the concrete classes.
+
+### Dashboard
+
+The web dashboard reuses the same engine (`src/`) and lives under `dashboard/`:
+
+| Path | Responsibility |
+|---|---|
+| `dashboard/server/` | Fastify + better-sqlite3 API: projects/recipes, run queue (`run-manager.mjs`), per-run config (`build-run-config.mjs`), Drive OAuth (`drive-auth.mjs`) + encrypted token store (`secrets/`, migrations), item upload (`upload-item.mjs`), run summary (`run-summary.mjs`), live-event hub + WebSocket |
+| `dashboard/web/` | React + Vite SPA: projects/Builder, runs (New Run form, items panel, live console, run summary), settings (Drive connect). Talks to the server over the same origin (`/api`, `/api/ws`) |
+| `compose.yaml`, `compose.dev.yaml` | Run the web + server together (prod / hot-reload dev) |
+
+The server imports the engine directly and runs scrapes through the same
+`BatchRunner`, so a dashboard run behaves exactly like a CLI run (including
+per-row Drive upload).
 
 ## Notes / limits
 
