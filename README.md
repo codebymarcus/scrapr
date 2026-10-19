@@ -7,7 +7,7 @@ a headless Chromium the way a person would (getting past JS gates, pressing the
 page downloads, then writes them to disk in page order.
 
 This handles **virtualized readers** — sites that keep only a few pages in the
-DOM at a time and load the next one when you advance (e.g. batcave.biz comic
+DOM at a time and load the next one when you advance (e.g. a JS-driven looping comic
 reader) — which a plain HTTP-fetch scraper cannot.
 
 **Two ways to use it:** the **CLI** documented below, or a **web dashboard**
@@ -34,13 +34,13 @@ node scrape.mjs "<readerUrl>" [options]
 Example (downloads all 18 pages of an issue into `./downloads/…`):
 
 ```bash
-node scrape.mjs "https://batcave.biz/reader/6967/39131"
+node scrape.mjs "https://reader.example.com/reader/6967/39131"
 ```
 
 Pick an output folder:
 
 ```bash
-node scrape.mjs "https://batcave.biz/reader/6967/39131" --out ./x-men-115
+node scrape.mjs "https://reader.example.com/reader/6967/39131" --out ./series-01
 ```
 
 Files are saved as `01.webp`, `02.webp`, … in page order. The extension matches
@@ -50,12 +50,12 @@ the real image type (so a `.jpg` URL that actually serves WebP is saved as
 ### Get a CBZ or PDF of JPGs
 
 ```bash
-node scrape.mjs "…/39131" --out ./x-men-115 --jpg --cbz    # comic-book archive
-node scrape.mjs "…/39131" --out ./x-men-115 --jpg --pdf    # PDF, one page per image
+node scrape.mjs "…/39131" --out ./series-01 --jpg --cbz    # comic-book archive
+node scrape.mjs "…/39131" --out ./series-01 --jpg --pdf    # PDF, one page per image
 ```
 
-- `--cbz` → `./x-men-115.cbz` (a ZIP of `01.jpg`, `02.jpg`, … that comic readers open).
-- `--pdf` → `./x-men-115.pdf` (one page per image, page sized to the image, no encryption).
+- `--cbz` → `./series-01.cbz` (a ZIP of `01.jpg`, `02.jpg`, … that comic readers open).
+- `--pdf` → `./series-01.pdf` (one page per image, page sized to the image, no encryption).
 - Add both flags to get both. `--cbz-only` / `--pdf-only` skip the loose image
   files. `--quality 90` raises JPEG quality (default 88).
 
@@ -128,9 +128,9 @@ pipeline stops on the first valid result.
 
 ### Built-in profiles
 
-**`batcave`** — The batcave.biz "event" reader (continuous / looping multi-chapter).
-Instead of pressing advance keys (which flow out of chapter boundaries), it addresses
-the target chapter's pages **directly by URL fragment** (`<chapterUrl>#page-N`):
+**Looping multi-chapter reader** — a continuous / looping reader where advancing
+flows past chapter boundaries. Instead of pressing advance keys, it addresses the
+target chapter's pages **directly by URL fragment** (`<chapterUrl>#page-N`):
 - Reads the chapter's page count from the "Page X / N" counter.
 - Locks the `ImageCapture` onto the target chapter's image directory so neighbouring
   preloaded images don't hijack the filter.
@@ -180,7 +180,7 @@ export default {
 import myReader from "./my-reader.mjs";
 
 export const PROFILES = [
-  batcave,
+  loopingReader,
   myReader,  // add this line
   generic
 ];
@@ -267,8 +267,8 @@ Each link is scraped in turn into its own subfolder and `.cbz` under `--out`
 
 | url | name |
 |---|---|
-| https://batcave.biz/reader/6967/39131 | X-Men 115 |
-| https://batcave.biz/reader/6967/39132 | X-Men 116 |
+| https://reader.example.com/reader/6967/39131 | Series 01 |
+| https://reader.example.com/reader/6967/39132 | Series 02 |
 
 - A `url` (or `link`/`href`) column supplies the links; an optional
   `name` (or `title`) column names each output folder / `.cbz`.
@@ -276,7 +276,7 @@ Each link is scraped in turn into its own subfolder and `.cbz` under `--out`
   (one per row). Rows that aren't `http(s)` URLs are skipped.
 
 With the sheet above, `--out ./comics --jpg --cbz` produces
-`./comics/X-Men 115.cbz`, `./comics/X-Men 116.cbz`, etc. One link failing
+`./comics/Series 01.cbz`, `./comics/Series 02.cbz`, etc. One link failing
 doesn't stop the batch — a summary of failures is printed at the end.
 
 ### `status` column (resumable progress)
@@ -288,10 +288,10 @@ resume:
 
 | url | name | status |
 |---|---|---|
-| …/39131 | X-Men 115 | *(blank)* |
-| …/39132 | X-Men 116 | done |
-| …/39133 | X-Men 117 | skip |
-| …/39134 | X-Men 118 | retry |
+| …/39131 | Series 01 | *(blank)* |
+| …/39132 | Series 02 | done |
+| …/39133 | Series 03 | skip |
+| …/39134 | Series 04 | retry |
 
 | Value | Meaning |
 |---|---|
@@ -583,7 +583,7 @@ node scrape.mjs --list links.xlsx --cbz --drive --drive-folder 1AbC...XyZ
 
 # build both, but upload ONLY the pdf, into a subfolder created on the fly
 node scrape.mjs "…/39131" --cbz --pdf \
-  --drive --drive-folder 1AbC...XyZ --drive-subfolder "Uncanny X-Men" --drive-only pdf
+  --drive --drive-folder 1AbC...XyZ --drive-subfolder "My Series" --drive-only pdf
 ```
 
 - `--drive` uploads the `.cbz` and/or `.pdf` you asked for, so pair it with
