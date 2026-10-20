@@ -12,6 +12,7 @@ import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { Recipe, Run } from "@/lib/schemas";
 import type { RunFormat, RunOverrides } from "../api/runs-api";
+import { ROW_CONCURRENCY_MAX, ROW_CONCURRENCY_MIN } from "../constants";
 import { useCreateRun, useEnqueue, useImport } from "../hooks/use-run-mutations";
 import { describeInvalidLines, parseUrlList } from "../url-list";
 import { projectOptions } from "./project-options";
@@ -37,6 +38,17 @@ function recipeFormat(recipe: Recipe | undefined): RunFormat {
   if (pdf) return "pdf";
   if (cbz) return "cbz";
   return "loose";
+}
+
+// Keeps typed input inside the allowed range; blank stays blank so the
+// operator can clear the field and retype.
+function clampConcurrency(raw: string): string {
+  if (raw.trim() === "") return "";
+  const parsed = Math.trunc(Number(raw));
+  if (!Number.isFinite(parsed)) return "";
+  return String(
+    Math.min(ROW_CONCURRENCY_MAX, Math.max(ROW_CONCURRENCY_MIN, parsed)),
+  );
 }
 
 const FORMAT_LABELS: Record<RunFormat, string> = {
@@ -70,6 +82,11 @@ export function NewRunDialog({
   const [folderEdit, setFolderEdit] = useState<string | null>(null);
   const [subfolderEdit, setSubfolderEdit] = useState<string | null>(null);
   const [formatEdit, setFormatEdit] = useState<RunFormat | null>(null);
+  // Rows scraped at once; applies to every run type. Kept as text so the
+  // field can be cleared while typing.
+  const [concurrencyText, setConcurrencyText] = useState(
+    String(ROW_CONCURRENCY_MIN),
+  );
   const [error, setError] = useState<string | null>(null);
   // Set once the run exists, so a failed enqueue can be retried without
   // creating a second run.
@@ -111,12 +128,18 @@ export function NewRunDialog({
 
   // The server applies only the keys that are present, so a blank folder must
   // be omitted rather than sent as "" (which would erase the recipe's folder).
+  // Concurrency applies to every run type; the drive keys only to image runs.
   function buildOverrides(): RunOverrides | undefined {
-    if (!showDrive) return undefined;
-    const overrides: RunOverrides = { drive, format };
-    if (folder.trim()) overrides.driveFolder = folder.trim();
-    if (subfolder.trim()) overrides.driveSubfolder = subfolder.trim();
-    return overrides;
+    const overrides: RunOverrides = {};
+    const concurrency = Number(clampConcurrency(concurrencyText));
+    if (concurrency > ROW_CONCURRENCY_MIN) overrides.concurrency = concurrency;
+    if (showDrive) {
+      overrides.drive = drive;
+      overrides.format = format;
+      if (folder.trim()) overrides.driveFolder = folder.trim();
+      if (subfolder.trim()) overrides.driveSubfolder = subfolder.trim();
+    }
+    return Object.keys(overrides).length > 0 ? overrides : undefined;
   }
 
   const busy =
@@ -259,6 +282,21 @@ export function NewRunDialog({
         {file
           ? "The sheet will be imported; any pasted URLs are ignored."
           : "Upload a csv, tsv, txt, xlsx or xls file with a column of URLs."}
+      </Text>
+      <Field htmlFor={`${ids}-concurrency`} label="Concurrent rows">
+        <TextInput
+          id={`${ids}-concurrency`}
+          type="number"
+          min={ROW_CONCURRENCY_MIN}
+          max={ROW_CONCURRENCY_MAX}
+          value={concurrencyText}
+          onChange={(value) => setConcurrencyText(clampConcurrency(value))}
+          disabled={createdRun !== null}
+        />
+      </Field>
+      <Text variant="small" tone="secondary" className={styles.hint}>
+        1 = sequential (safe). Higher scrapes more rows at once — faster, but
+        hits the site harder. Pages within a row still scrape one at a time.
       </Text>
       {showDrive ? (
         <div className={styles.driveSection}>
