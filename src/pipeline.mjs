@@ -232,6 +232,7 @@ export class BatchRunner {
     this.logger = logger;
     this._stopping = false;
     this._recordWriter = null; // created lazily on the first records-mode text job
+    this._recordTail = null;   // promise tail serialising shared RecordWriter.append under concurrency
     // Injectable so the batch loop can be unit-tested without a real browser.
     this._scrapeJob = deps.scrapeJob || scrapeJob;
     this._scrapeText = deps.scrapeText || scrapeText;
@@ -322,94 +323,147 @@ export class BatchRunner {
 
   // Iterate the jobs, honouring the status column and the stop flag. Extracted
   // from run() so it can be tested with an injected job runner and no browser.
+  //
+  // Rows are processed by a bounded pool of N = clamp(rowConcurrency, 1, jobs.length)
+  // workers sharing a synchronous cursor (`const i = next++` — the atomic claim, with
+  // no await between read and increment, which is race-free in single-threaded JS).
+  // Each worker claims the next unclaimed row, runs it via _runOneJob, and writes the
+  // result at its own index so `results` stays order-preserving regardless of finish
+  // order. At N=1 this is byte-for-byte the old sequential loop.
   async _runJobs({ jobs, source, session, processor, packagers, uploader, breaker }) {
     const brk = breaker || new CircuitBreaker(0);
+    const ctx = { source, session, processor, packagers, uploader, breaker: brk };
     const results = [];
-    let scrapedAny = false;
-    for (let i = 0; i < jobs.length; i++) {
-      if (this._stopping) {
-        const left = jobs.length - i;
-        this.logger.warn(`stopped — ${left} job(s) left unprocessed (rerun to resume).`);
-        break;
+    const n = Math.max(1, Math.min(this.config.rowConcurrency || 1, jobs.length));
+
+    let next = 0;        // shared cursor over the already-loaded jobs array
+    let claimed = 0;     // rows a worker actually took (for the stop tally)
+    const worker = async () => {
+      // itemDelay pacing is per-worker: a worker's FIRST scraped row gets no delay,
+      // later rows wait itemDelay (+ backoff). Each worker tracks its own flag.
+      let scrapedAny = false;
+      while (true) {
+        if (this._stopping) break;      // stop before claiming so the row stays resumable
+        const i = next++;               // atomic claim — no await between read and increment
+        if (i >= jobs.length) break;
+        claimed++;
+        const { rec, scraped } = await this._runOneJob(jobs[i], i, jobs.length, ctx, scrapedAny);
+        scrapedAny = scrapedAny || scraped;
+        results[i] = rec;
       }
-      const job = jobs[i];
-      const tag = `(${i + 1}/${jobs.length})`;
+    };
+    await Promise.all(Array.from({ length: n }, () => worker()));
 
-      if (source.hasStatus) {
-        const skip = skipReason(job.status);
-        if (skip) {
-          this.logger.muted(`${tag} ${skip} — ${job.url}`);
-          results.push({ ...job, skipped: true });
-          continue;
-        }
-      }
-
-      const host = hostOf(job.url);
-      if (brk.isTripped(host)) {
-        brk.noteSkip();
-        this.logger.muted(`${tag} skipped — ${host} circuit-breaker tripped (left to retry) — ${job.url}`);
-        results.push({ ...job, skipped: true, breakerSkipped: true });
-        source.setReason?.(job, "skipped: domain circuit-breaker");
-        continue;
-      }
-
-      const extra = brk.extraDelay(host);
-      const waitMs = (scrapedAny ? this.config.itemDelay : 0) + extra;
-      if (extra > 0) this.logger.verbose?.(`backing off ${host} ${Math.round(extra / 1000)}s`);
-      if (waitMs > 0) await sleep(withJitter(waitMs, this.config.jitter));
-      scrapedAny = true;
-
-      if (jobs.length > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
-
-      let complete = false;
-      let rec;
-      try {
-        const profile = this._resolveProfile(job.url);
-        const contentType = this.config.text ? "text" : (profile.contentType || "image");
-        if (contentType === "text") {
-          const mode = resolveMode(this.config, profile);
-          this.logger.verbose(`profile=${profile.name} contentType=text mode=${mode}`);
-          if ((mode === "pattern" || mode === "selector") && !this._recordWriter) {
-            this._recordWriter = new RecordWriter(resolveRecordBase(this.config));
-          }
-          const r = await this._scrapeText(session, job, this.config, this.logger, profile, { recordWriter: this._recordWriter });
-          complete = r.complete;
-          rec = { ...job, ...r, ok: complete };
-        } else {
-          const strategies = this._resolvePipeline(profile, this.config, this.logger);
-          this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
-
-          if (!strategies.length) {
-            this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
-            rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
-          } else {
-            const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
-            const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
-            complete = r.complete;
-            rec = { ...job, ...r, ok: complete };
-          }
-        }
-      } catch (e) {
-        this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
-        rec = { ...job, saved: 0, ok: false, error: String(e?.message || e) };
-      }
-      results.push(rec);
-
-      const code = failureCodeOf(rec);
-      brk.record(host, { ok: complete, code });
-
-      // Persist outcome immediately so an interrupted batch is resumable.
-      if (source.hasStatus) {
-        source.setStatus(job, complete ? "done" : "retry");
-        // Status/breaker follow the SCRAPE outcome; an upload-only failure is still
-        // "done" (files kept locally) with the pending upload noted in the reason.
-        const reason = !complete ? (code || "FAILED") : (rec.uploadError ? `upload pending: ${rec.uploadError}` : "");
-        source.setReason?.(job, reason);
-      }
-
-      this._onItem?.(rec);
+    if (this._stopping) {
+      const left = jobs.length - claimed;
+      this.logger.warn(`stopped — ${left} job(s) left unprocessed (rerun to resume).`);
     }
     return results;
+  }
+
+  // Process one row end to end: skip/breaker checks, itemDelay + backoff wait,
+  // profile resolve, text-vs-image scrape, breaker.record, status/reason writes,
+  // and the per-item hook. Returns { rec, scraped } — `scraped` is true only when
+  // the row reached the scrape path (skipped/breaker-skipped rows return false so a
+  // worker's itemDelay pacing is unaffected by them). This is the seam Tasks 3 and 4
+  // extend: the scrape work sits in one region, ready to be wrapped by a per-row
+  // semaphore and a per-row logger.
+  async _runOneJob(job, index, total, ctx, scrapedAny) {
+    const { source, session, processor, packagers, uploader, breaker: brk } = ctx;
+    const tag = `(${index + 1}/${total})`;
+
+    if (source.hasStatus) {
+      const skip = skipReason(job.status);
+      if (skip) {
+        this.logger.muted(`${tag} ${skip} — ${job.url}`);
+        return { rec: { ...job, skipped: true }, scraped: false };
+      }
+    }
+
+    const host = hostOf(job.url);
+    if (brk.isTripped(host)) {
+      brk.noteSkip();
+      this.logger.muted(`${tag} skipped — ${host} circuit-breaker tripped (left to retry) — ${job.url}`);
+      source.setReason?.(job, "skipped: domain circuit-breaker");
+      return { rec: { ...job, skipped: true, breakerSkipped: true }, scraped: false };
+    }
+
+    const extra = brk.extraDelay(host);
+    const waitMs = (scrapedAny ? this.config.itemDelay : 0) + extra;
+    if (extra > 0) this.logger.verbose?.(`backing off ${host} ${Math.round(extra / 1000)}s`);
+    if (waitMs > 0) await sleep(withJitter(waitMs, this.config.jitter));
+
+    if (total > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
+
+    // --- scrape region (Tasks 3/4 wrap this: row-slot semaphore + per-row logger) ---
+    let complete = false;
+    let rec;
+    try {
+      const profile = this._resolveProfile(job.url);
+      const contentType = this.config.text ? "text" : (profile.contentType || "image");
+      if (contentType === "text") {
+        const mode = resolveMode(this.config, profile);
+        this.logger.verbose(`profile=${profile.name} contentType=text mode=${mode}`);
+        if ((mode === "pattern" || mode === "selector") && !this._recordWriter) {
+          // check-and-assign has no await between them, so concurrent workers can't
+          // both create a writer — the first one wins and the rest reuse it.
+          this._recordWriter = new RecordWriter(resolveRecordBase(this.config));
+        }
+        const r = await this._scrapeText(session, job, this.config, this.logger, profile, { recordWriter: this._serialRecordWriter() });
+        complete = r.complete;
+        rec = { ...job, ...r, ok: complete };
+      } else {
+        const strategies = this._resolvePipeline(profile, this.config, this.logger);
+        this.logger.verbose(`profile=${profile.name} contentType=${profile.contentType} pipeline=[${strategies.map((s) => s.strategy.name).join(", ")}]`);
+
+        if (!strategies.length) {
+          this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
+          rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
+        } else {
+          const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
+          const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
+          complete = r.complete;
+          rec = { ...job, ...r, ok: complete };
+        }
+      }
+    } catch (e) {
+      this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
+      rec = { ...job, saved: 0, ok: false, error: String(e?.message || e) };
+    }
+    // --- end scrape region ---
+
+    const code = failureCodeOf(rec);
+    brk.record(host, { ok: complete, code });
+
+    // Persist outcome immediately so an interrupted batch is resumable.
+    if (source.hasStatus) {
+      source.setStatus(job, complete ? "done" : "retry");
+      // Status/breaker follow the SCRAPE outcome; an upload-only failure is still
+      // "done" (files kept locally) with the pending upload noted in the reason.
+      const reason = !complete ? (code || "FAILED") : (rec.uploadError ? `upload pending: ${rec.uploadError}` : "");
+      source.setReason?.(job, reason);
+    }
+
+    this._onItem?.(rec);
+    return { rec, scraped: true };
+  }
+
+  // A view over the shared RecordWriter whose append() is serialised on a single
+  // promise tail, so concurrent text-record rows can't interleave the writer's
+  // file writes. Returns null when there is no writer (e.g. article mode). At
+  // concurrency 1 the chain is trivial and ordering is unchanged.
+  _serialRecordWriter() {
+    const writer = this._recordWriter;
+    if (!writer) return null;
+    return {
+      append: (record) => {
+        this._recordTail = (this._recordTail ?? Promise.resolve()).then(() => writer.append(record));
+        return this._recordTail;
+      },
+      get count() { return writer.count; },
+      get jsonPath() { return writer.jsonPath; },
+      get csvPath() { return writer.csvPath; }
+    };
   }
 
   _summary(jobs, results, breaker) {
