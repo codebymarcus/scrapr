@@ -198,6 +198,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("progress"),
+    itemId: z.number().optional(),
     current: z.number(),
     total: z.number(),
     label: z.string().optional(),
@@ -205,6 +206,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("progress-end"),
+    itemId: z.number().optional(),
     ts: z.number().optional(),
   }),
   z.object({

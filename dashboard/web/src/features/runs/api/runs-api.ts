@@ -126,6 +126,8 @@ export type RunOverrides = {
   driveFolder?: string;
   driveSubfolder?: string;
   format?: RunFormat;
+  /** Per-run rows-in-flight override; absent means the server default. */
+  concurrency?: number;
 };
 
 export type CreateRunInput = {

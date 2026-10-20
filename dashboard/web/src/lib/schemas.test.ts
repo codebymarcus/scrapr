@@ -229,6 +229,26 @@ describe("runEventSchema", () => {
     });
   });
 
+  it("parses a progress event with an itemId", () => {
+    const e = runEventSchema.parse({
+      type: "progress",
+      itemId: 7,
+      current: 2,
+      total: 5,
+    });
+    expect(e).toMatchObject({ type: "progress", itemId: 7, current: 2, total: 5 });
+  });
+
+  it("parses a progress-end event with an itemId", () => {
+    const e = runEventSchema.parse({ type: "progress-end", itemId: 7, ts });
+    expect(e).toMatchObject({ type: "progress-end", itemId: 7 });
+  });
+
+  it("still parses progress events without an itemId", () => {
+    const e = runEventSchema.parse({ type: "progress", current: 1, total: 2 });
+    expect(e).not.toHaveProperty("itemId");
+  });
+
   it("rejects an unknown event type", () => {
     expect(runEventSchema.safeParse({ type: "nope", ts }).success).toBe(false);
   });
