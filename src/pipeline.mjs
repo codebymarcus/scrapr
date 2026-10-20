@@ -242,6 +242,10 @@ export class BatchRunner {
     // Injectable job source (so a store-backed source can drive a run) and a per-item hook.
     this._createJobSource = deps.createJobSource || createJobSource;
     this._onItem = deps.onItem || null;
+    // Global row-slot semaphore (shared across all runs by the run manager) caps the
+    // total number of rows scraping at once. Default is a no-op limiter so the CLI
+    // and existing tests are unaffected: acquire resolves immediately with a no-op release.
+    this._rowLimiter = deps.rowLimiter || { acquire: async () => () => {} };
   }
 
   // Ask the loop to stop after the current job finishes. Idempotent.
@@ -395,7 +399,12 @@ export class BatchRunner {
 
     if (total > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
-    // --- scrape region (Tasks 3/4 wrap this: row-slot semaphore + per-row logger) ---
+    // --- scrape region (row-slot semaphore + per-row logger) ---
+    // Acquire a global row slot before opening any page, so the number of pages open
+    // at once across ALL runs never exceeds the limiter's ceiling. This sits AFTER the
+    // skip / breaker-trip short-circuits above, so a skipped row consumes no slot. The
+    // slot is released in a finally — on success, on a scrape error, and on stop.
+    const release = await this._rowLimiter.acquire();
     // Per-row logger: page-progress events carry job.id. The CLI's plain logger has no
     // forItem, so fall back to the shared logger (progress just carries no itemId there).
     const rowLogger = this.logger.forItem?.(job.id) ?? this.logger;
@@ -432,6 +441,8 @@ export class BatchRunner {
     } catch (e) {
       this.logger.error(`failed on ${job.url}: ${e?.message || e}`);
       rec = { ...job, saved: 0, ok: false, error: String(e?.message || e) };
+    } finally {
+      release(); // always free the slot: success, scrape error, or stop
     }
     // --- end scrape region ---
 

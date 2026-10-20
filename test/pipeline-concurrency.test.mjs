@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { BatchRunner } from "../src/pipeline.mjs";
 import { CircuitBreaker } from "../src/breaker.mjs";
 import { RecordWriter } from "../src/text/records.mjs";
+import { createRowLimiter } from "../dashboard/server/src/row-limiter.mjs";
 
 const noopLogger = {
   info() {}, warn() {}, muted() {}, verbose() {}, success() {}, error() {}, step() {}, section() {}, progressBar() {}
@@ -64,6 +65,60 @@ test("stop mid-run: in-flight finish, remaining rows left unprocessed", async ()
   // Unclaimed rows stay resumable: only processed rows touched the status store, so
   // the never-claimed rows keep their blank status (nothing marked done/retry).
   assert.equal(Object.keys(statuses).length, processedIds.length, "only processed rows wrote a status");
+});
+
+// Build a runner wired to scrape via an injected barrier _scrapeJob that shares an
+// in-flight counter, so two runners can be driven against ONE limiter and we can
+// observe the real max overlap across both.
+function makeLimiterRunner({ rowConcurrency, rowLimiter, shared }) {
+  const runner = new BatchRunner(
+    { itemDelay: 0, jitter: 0, maxDomainFailures: 0, rowConcurrency },
+    noopLogger,
+    { rowLimiter }
+  );
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async (session, job) => {
+    if (job._throw) throw new Error("boom");
+    shared.inFlight++;
+    shared.maxInFlight = Math.max(shared.maxInFlight, shared.inFlight);
+    await tick();
+    await tick();
+    shared.inFlight--;
+    return { saved: 1, total: 1, complete: true };
+  };
+  return runner;
+}
+
+test("a shared limiter bounds total concurrent scrapes across two runners", async () => {
+  const lim = createRowLimiter(2);
+  const shared = { inFlight: 0, maxInFlight: 0 };
+  const source = () => ({ hasStatus: true, setStatus() {}, setReason() {} });
+  const ctx = { processor: {}, packagers: [], uploader: null };
+
+  const runnerA = makeLimiterRunner({ rowConcurrency: 3, rowLimiter: lim, shared });
+  const runnerB = makeLimiterRunner({ rowConcurrency: 3, rowLimiter: lim, shared });
+
+  await Promise.all([
+    runnerA._runJobs({ jobs: makeJobs(6), source: source(), session: {}, ...ctx, breaker: new CircuitBreaker(0) }),
+    runnerB._runJobs({ jobs: makeJobs(6), source: source(), session: {}, ...ctx, breaker: new CircuitBreaker(0) }),
+  ]);
+
+  // Each runner would allow 3 rows at once (6 total), but the shared max-2 limiter
+  // caps the real overlap across BOTH runners.
+  assert.equal(shared.maxInFlight, 2);
+  assert.equal(lim.inUse(), 0, "all slots released after both runs finish");
+});
+
+test("a row that throws still releases its slot (no leak)", async () => {
+  const lim = createRowLimiter(2);
+  const shared = { inFlight: 0, maxInFlight: 0 };
+  const runner = makeLimiterRunner({ rowConcurrency: 2, rowLimiter: lim, shared });
+  const jobs = makeJobs(4);
+  jobs[1]._throw = true; // one row's scrape throws
+  const source = { hasStatus: true, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.equal(lim.inUse(), 0, "slot released even when the scrape throws");
 });
 
 test("concurrent text-record appends are serialized (no lost records, no overlapping writes)", async () => {

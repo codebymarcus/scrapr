@@ -4,8 +4,13 @@ import { boundResolver } from "../../../src/recipes/recipe.mjs";
 import { createEventLogger } from "../../../src/events/event-logger.mjs";
 import { needsReview } from "../../../src/recipes/review.mjs";
 import { buildRunConfig } from "./build-run-config.mjs";
+import { createRowLimiter } from "./row-limiter.mjs";
 
 export const defaultRunnerFactory = (config, logger, deps) => new BatchRunner(config, logger, deps);
+
+// Ceiling on the TOTAL number of rows scraping at once across ALL runs. One shared
+// limiter enforces it, so e.g. two runs set to 5 rows each can't open 10 pages.
+export const GLOBAL_MAX_CONCURRENT_ROWS = 6;
 
 // Runs one scrape at a time. Extra start() calls leave their run queued; when the
 // active run reaches a terminal state the next queued run is started.
@@ -29,6 +34,8 @@ export function createRunManager({
   const orphans = new Set();
   // Set by shutdown(): the queue is no longer auto-drained.
   let draining = false;
+  // One semaphore shared by every run: caps total concurrent rows across all runs.
+  const rowLimiter = createRowLimiter(GLOBAL_MAX_CONCURRENT_ROWS);
 
   function safeEmit(runId, event) {
     try {
@@ -120,6 +127,7 @@ export function createRunManager({
       const deps = {
         createJobSource: () => new StoreJobSource(store, runId, logger),
         onItem,
+        rowLimiter,
       };
       // A built-in recipe omits resolveProfile so BatchRunner falls back to the engine's
       // URL-matched resolver (the built-in profile); a data recipe binds its own profile.
