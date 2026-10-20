@@ -396,6 +396,9 @@ export class BatchRunner {
     if (total > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
     // --- scrape region (Tasks 3/4 wrap this: row-slot semaphore + per-row logger) ---
+    // Per-row logger: page-progress events carry job.id. The CLI's plain logger has no
+    // forItem, so fall back to the shared logger (progress just carries no itemId there).
+    const rowLogger = this.logger.forItem?.(job.id) ?? this.logger;
     let complete = false;
     let rec;
     try {
@@ -409,7 +412,7 @@ export class BatchRunner {
           // both create a writer — the first one wins and the rest reuse it.
           this._recordWriter = new RecordWriter(resolveRecordBase(this.config));
         }
-        const r = await this._scrapeText(session, job, this.config, this.logger, profile, { recordWriter: this._serialRecordWriter() });
+        const r = await this._scrapeText(session, job, this.config, rowLogger, profile, { recordWriter: this._serialRecordWriter() });
         complete = r.complete;
         rec = { ...job, ...r, ok: complete };
       } else {
@@ -420,8 +423,8 @@ export class BatchRunner {
           this.logger.error(`no mechanisms resolved for ${job.url} (profile ${profile.name}) — marking retry`);
           rec = { ...job, saved: 0, ok: false, error: "no mechanisms resolved" };
         } else {
-          const orchestrator = new ScrapingOrchestrator(strategies, this._validate, this.logger);
-          const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, this.logger, orchestrator, profile);
+          const orchestrator = new ScrapingOrchestrator(strategies, this._validate, rowLogger);
+          const r = await this._scrapeJob(session, job, this.config, processor, packagers, uploader, rowLogger, orchestrator, profile);
           complete = r.complete;
           rec = { ...job, ...r, ok: complete };
         }
