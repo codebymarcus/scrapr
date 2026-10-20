@@ -48,6 +48,8 @@ export const DEFAULTS = {
   // { name, maxAttempts?, enabled? }); null = use the matched profile.
   strategies: null,
   navTimeout: 45000, itemDelay: 3000, headed: false,
+  // rows scraped in parallel (worker-pool size, 1-5); 1 = sequential, unchanged behavior.
+  rowConcurrency: 1,
   // circuit breaker: consecutive domain-health failures on one host before it is
   // skipped for the rest of the run (rows stay retryable); grows the delay before
   // then. 0 disables the breaker and the adaptive backoff.

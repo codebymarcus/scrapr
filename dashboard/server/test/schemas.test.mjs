@@ -153,3 +153,9 @@ test("parseOr400 does not throw on garbage input", () => {
   assert.equal(parseOr400(recipeSchema, undefined).ok, false);
   assert.equal(parseOr400(recipeSchema, null).ok, false);
 });
+
+test("createRunSchema accepts concurrency 1..5 and rejects out-of-range/non-int", () => {
+  assert.ok(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 5 } }).ok);
+  assert.equal(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 6 } }).ok, false);
+  assert.equal(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 2.5 } }).ok, false);
+});

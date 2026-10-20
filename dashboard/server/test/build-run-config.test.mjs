@@ -235,3 +235,20 @@ test("image recipes run in batch mode (per-item naming); text recipes do not", (
   );
   assert.notEqual(txt.batch, true);
 });
+
+const concImageRecipe = { name: "I", contentType: "image" };
+const concTextRecipe = { name: "T", contentType: "text", text: { mode: "selector" } };
+
+test("rowConcurrency comes from overrides.concurrency, clamped to [1,5]", () => {
+  const img = buildRunConfig(concImageRecipe, { runOutDir: "/x", overrides: { concurrency: 3 } });
+  assert.equal(img.rowConcurrency, 3);
+  assert.equal(buildRunConfig(concImageRecipe, { runOutDir: "/x", overrides: { concurrency: 99 } }).rowConcurrency, 5);
+  assert.equal(buildRunConfig(concImageRecipe, { runOutDir: "/x", overrides: { concurrency: 0 } }).rowConcurrency, 1);
+});
+
+test("rowConcurrency defaults to 1 and applies to text runs too (overrides otherwise ignored)", () => {
+  assert.equal(buildRunConfig(concImageRecipe, { runOutDir: "/x", overrides: {} }).rowConcurrency, 1);
+  const text = buildRunConfig(concTextRecipe, { runOutDir: "/x", overrides: { concurrency: 4, drive: true } });
+  assert.equal(text.rowConcurrency, 4);
+  assert.notEqual(text.drive, true); // drive override still ignored for text
+});
