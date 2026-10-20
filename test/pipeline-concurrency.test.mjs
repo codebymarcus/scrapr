@@ -121,6 +121,28 @@ test("a row that throws still releases its slot (no leak)", async () => {
   assert.equal(lim.inUse(), 0, "slot released even when the scrape throws");
 });
 
+test("a SYNCHRONOUS throw right after acquire still releases its slot (no leak window)", async () => {
+  // The first fallible step after acquire() (here, logger.forItem) throws synchronously.
+  // If that step sat outside the try, the acquired slot would leak permanently from the
+  // process-global limiter. The acquire must be the last statement before the try.
+  const lim = createRowLimiter(2);
+  const throwingLogger = {
+    ...noopLogger,
+    forItem() { throw new Error("forItem blew up before any try"); },
+  };
+  const runner = new BatchRunner(
+    { itemDelay: 0, jitter: 0, maxDomainFailures: 0, rowConcurrency: 1 },
+    throwingLogger,
+    { rowLimiter: lim }
+  );
+  runner._resolveProfile = () => ({ name: "generic", contentType: "image" });
+  runner._resolvePipeline = () => [{ strategy: { name: "current" }, maxAttempts: 1 }];
+  runner._scrapeJob = async () => ({ saved: 1, total: 1, complete: true });
+  const source = { hasStatus: true, setStatus() {}, setReason() {} };
+  await runner._runJobs({ jobs: makeJobs(2), source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
+  assert.equal(lim.inUse(), 0, "slot released even when the first post-acquire step throws synchronously");
+});
+
 test("concurrent text-record appends are serialized (no lost records, no overlapping writes)", async () => {
   const runner = new BatchRunner(
     { itemDelay: 0, jitter: 0, maxDomainFailures: 0, text: true, textMode: "pattern", rowConcurrency: 4 },

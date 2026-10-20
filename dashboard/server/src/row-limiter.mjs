@@ -11,7 +11,7 @@
 // double-release must not over-credit the semaphore — and pulls the next waiter.
 export function createRowLimiter(max) {
   // Clamp so a misconfigured max can never deadlock acquire().
-  const limit = Math.max(1, Math.floor(Number(max) || 0) || 1);
+  const limit = Math.max(1, Math.floor(Number(max) || 0));
   let inUse = 0;
   const waiters = []; // FIFO queue of resolve fns waiting for a slot
 

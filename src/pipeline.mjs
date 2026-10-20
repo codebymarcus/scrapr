@@ -400,17 +400,23 @@ export class BatchRunner {
     if (total > 1) this.logger.section(`=== ${tag}${job.status === "retry" ? " [retry]" : ""} ${job.url} ===`);
 
     // --- scrape region (row-slot semaphore + per-row logger) ---
-    // Acquire a global row slot before opening any page, so the number of pages open
-    // at once across ALL runs never exceeds the limiter's ceiling. This sits AFTER the
-    // skip / breaker-trip short-circuits above, so a skipped row consumes no slot. The
-    // slot is released in a finally — on success, on a scrape error, and on stop.
-    const release = await this._rowLimiter.acquire();
     // Per-row logger: page-progress events carry job.id. The CLI's plain logger has no
     // forItem, so fall back to the shared logger (progress just carries no itemId there).
-    const rowLogger = this.logger.forItem?.(job.id) ?? this.logger;
+    // Declared here but ASSIGNED inside the try: forItem could throw, and nothing
+    // fallible may run between acquire() and the try that guarantees release.
+    let rowLogger;
     let complete = false;
     let rec;
+    // Acquire a global row slot before opening any page, so the number of pages open
+    // at once across ALL runs never exceeds the limiter's ceiling. This sits AFTER the
+    // skip / breaker-trip short-circuits above, so a skipped row consumes no slot. It is
+    // the LAST statement before `try`, so the slot is always freed by the finally — on
+    // success, on a scrape error (including a synchronous throw in the first steps), and
+    // on stop. The limiter is process-global, so a leaked slot would shrink capacity for
+    // every future run.
+    const release = await this._rowLimiter.acquire();
     try {
+      rowLogger = this.logger.forItem?.(job.id) ?? this.logger;
       const profile = this._resolveProfile(job.url);
       const contentType = this.config.text ? "text" : (profile.contentType || "image");
       if (contentType === "text") {
