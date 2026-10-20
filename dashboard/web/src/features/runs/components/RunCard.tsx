@@ -229,6 +229,7 @@ export function RunCard({
             items={detail.data?.items ?? []}
             contentType={contentType ?? "text"}
             isRunning={isRunning}
+            liveByItem={detail.data?.liveByItem}
             client={client}
           />
         </div>

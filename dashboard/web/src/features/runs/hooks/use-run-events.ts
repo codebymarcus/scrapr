@@ -36,6 +36,19 @@ export const MAX_LOG_LINES = 1000;
 
 const TERMINAL_STATES = new Set<Run["state"]>(["done", "failed", "stopped"]);
 
+/** Returns `detail` without `itemId`'s live counter (same object if absent). */
+function withoutLive(
+  detail: CachedRunDetail,
+  itemId: number,
+): CachedRunDetail {
+  if (!detail.liveByItem || !(itemId in detail.liveByItem)) {
+    return detail;
+  }
+  const rest = { ...detail.liveByItem };
+  delete rest[itemId];
+  return { ...detail, liveByItem: rest };
+}
+
 function applyEvent(
   queryClient: QueryClient,
   runId: number,
@@ -45,14 +58,21 @@ function applyEvent(
 
   switch (event.type) {
     case "progress": {
+      const { itemId } = event;
+      if (itemId === undefined) {
+        return;
+      }
       queryClient.setQueryData<CachedRunDetail>(detailKey, (detail) =>
         detail
           ? {
               ...detail,
-              live: {
-                current: event.current,
-                total: event.total,
-                label: event.label,
+              liveByItem: {
+                ...detail.liveByItem,
+                [itemId]: {
+                  current: event.current,
+                  total: event.total,
+                  label: event.label,
+                },
               },
             }
           : detail,
@@ -60,12 +80,13 @@ function applyEvent(
       return;
     }
     case "progress-end": {
-      queryClient.setQueryData<CachedRunDetail>(detailKey, (detail) => {
-        if (!detail?.live) {
-          return detail;
-        }
-        return { ...detail, live: undefined };
-      });
+      const { itemId } = event;
+      if (itemId === undefined) {
+        return;
+      }
+      queryClient.setQueryData<CachedRunDetail>(detailKey, (detail) =>
+        detail ? withoutLive(detail, itemId) : detail,
+      );
       return;
     }
     case "item": {
@@ -76,7 +97,7 @@ function applyEvent(
         return;
       }
       queryClient.setQueryData<CachedRunDetail>(detailKey, {
-        ...detail,
+        ...withoutLive(detail, event.id),
         items: detail.items.map((item) =>
           item.id === event.id
             ? {

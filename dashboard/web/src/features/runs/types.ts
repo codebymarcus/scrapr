@@ -57,7 +57,6 @@ export type LogLine = {
 
 /** Cached run detail: the server shape plus live socket-only data. */
 export type CachedRunDetail = RunDetail & {
-  live?: LiveProgress;
   /** Latest live counter per in-flight item id (concurrent rows). */
   liveByItem?: Record<number, LiveProgress>;
   /** Most recent log lines (oldest first), capped at `MAX_LOG_LINES`. */
