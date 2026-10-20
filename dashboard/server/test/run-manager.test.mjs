@@ -4,6 +4,7 @@ import { openDb } from "../src/db/db.mjs";
 import { migrate } from "../src/db/migrations.mjs";
 import { createStore } from "../src/db/store.mjs";
 import { createRunManager } from "../src/run-manager.mjs";
+import { stopActiveRuns } from "../src/stop-active-runs.mjs";
 
 const imageRecipe = { name: "Img", contentType: "image" };
 
@@ -485,6 +486,52 @@ test("after shutdown(), stopping an active run does not auto-start the queued ru
   assert.equal(factory.created.length, 2);
   assert.equal(store.getRun(r3.id).state, "queued");
   assert.equal(mgr.activeRunId(), null);
+  db.close();
+});
+
+test("shutdown drains all: stops every active run, both end stopped, queued run stays queued", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const r1 = makeRun(["https://e.com/1"]);
+  const r2 = makeRun(["https://e.com/2"]);
+  const r3 = makeRun(["https://e.com/3"]);
+  // Each run blocks until its own stop() is called, like a real scrape.
+  const factory = (config, logger, deps) => {
+    const gate = deferred();
+    const runner = {
+      config, logger, deps, stopped: false,
+      stop() { runner.stopped = true; gate.resolve(); },
+      run: async () => { await gate.promise; return 0; },
+    };
+    factory.created.push(runner);
+    return runner;
+  };
+  factory.created = [];
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const p1 = mgr.start(r1.id);
+  const p2 = mgr.start(r2.id);
+  assert.equal(await mgr.start(r3.id), "queued");
+  assert.equal(mgr.runningCount(), 2);
+
+  // Same sequence server.mjs shutdown() runs.
+  mgr.shutdown();
+  await stopActiveRuns(mgr, 5_000);
+
+  assert.equal(factory.created[0].stopped, true);
+  assert.equal(factory.created[1].stopped, true);
+  assert.equal(await p1, "stopped");
+  assert.equal(await p2, "stopped");
+  assert.equal(store.getRun(r1.id).state, "stopped");
+  assert.equal(store.getRun(r2.id).state, "stopped");
+  assert.equal(store.getRun(r3.id).state, "queued");
+  assert.equal(factory.created.length, 2);
+  assert.deepEqual(mgr.activeRunIds(), []);
+  db.close();
+});
+
+test("stopActiveRuns with no active runs resolves immediately", async () => {
+  const { db, store, emit } = setup();
+  const mgr = createRunManager({ store, emit, runnerFactory: fakeFactory(async () => 0), runOutDir: () => "/o" });
+  await stopActiveRuns(mgr, 5_000);
   db.close();
 });
 
