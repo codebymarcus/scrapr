@@ -148,6 +148,26 @@ describe("RunCard", () => {
     );
   });
 
+  it("enables Start and Resume by default", () => {
+    renderCard({ run: makeRun({ id: 3, state: "queued" }) });
+    expect(screen.getByRole("button", { name: "Start Run 3" })).toBeEnabled();
+  });
+
+  it("disables Start on a queued run when startDisabled is set", () => {
+    renderCard({ run: makeRun({ id: 3, state: "queued" }), startDisabled: true });
+    expect(screen.getByRole("button", { name: "Start Run 3" })).toBeDisabled();
+  });
+
+  it("disables Resume on a stopped run when startDisabled is set", () => {
+    renderCard({ run: makeRun({ id: 2, state: "stopped" }), startDisabled: true });
+    expect(screen.getByRole("button", { name: "Resume Run 2" })).toBeDisabled();
+  });
+
+  it("does not disable Stop on a running run when startDisabled is set", () => {
+    renderCard({ run: makeRun({ id: 4, state: "running" }), startDisabled: true });
+    expect(screen.getByRole("button", { name: "Stop Run 4" })).toBeEnabled();
+  });
+
   it("offers only Stop on a running run (no pause endpoint exists)", async () => {
     const { client, fetchFn } = makeClient((path) =>
       path.endsWith("/stop") ? json({ stopped: true }) : json({}),
