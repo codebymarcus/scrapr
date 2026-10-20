@@ -457,8 +457,12 @@ export class BatchRunner {
     if (!writer) return null;
     return {
       append: (record) => {
-        this._recordTail = (this._recordTail ?? Promise.resolve()).then(() => writer.append(record));
-        return this._recordTail;
+        // Sequence this append after the previous one, but keep a *swallowed* tail
+        // for ordering so one row's I/O failure can't poison the chain and skip the
+        // next row's write. The caller still sees this row's real rejection.
+        const result = (this._recordTail ?? Promise.resolve()).then(() => writer.append(record));
+        this._recordTail = result.catch(() => {});
+        return result;
       },
       get count() { return writer.count; },
       get jsonPath() { return writer.jsonPath; },

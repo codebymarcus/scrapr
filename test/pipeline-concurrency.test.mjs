@@ -58,9 +58,12 @@ test("rowConcurrency=3 runs up to 3 rows at once and processes each exactly once
 });
 
 test("stop mid-run: in-flight finish, remaining rows left unprocessed", async () => {
-  const { processedIds } = await runWith({ rowConcurrency: 2, jobs: 10, stopAtIndex: 2 });
+  const { processedIds, statuses } = await runWith({ rowConcurrency: 2, jobs: 10, stopAtIndex: 2 });
   assert.ok(processedIds.length < 10, `expected fewer than 10 processed, got ${processedIds.length}`);
   assert.equal(new Set(processedIds).size, processedIds.length, "no row processed twice");
+  // Unclaimed rows stay resumable: only processed rows touched the status store, so
+  // the never-claimed rows keep their blank status (nothing marked done/retry).
+  assert.equal(Object.keys(statuses).length, processedIds.length, "only processed rows wrote a status");
 });
 
 test("concurrent text-record appends are serialized (no lost records, no overlapping writes)", async () => {
@@ -90,4 +93,33 @@ test("concurrent text-record appends are serialized (no lost records, no overlap
   await runner._runJobs({ jobs, source, session: {}, processor: {}, packagers: [], uploader: null, breaker: new CircuitBreaker(0) });
   assert.equal(writer.count, 20, "every row's record was appended");
   assert.equal(maxActiveWrites, 1, "record writes never overlapped");
+});
+
+test("a failing record append rejects to its caller but does not poison later rows", async () => {
+  const runner = new BatchRunner(
+    { itemDelay: 0, jitter: 0, maxDomainFailures: 0, text: true, textMode: "pattern", rowConcurrency: 1 },
+    noopLogger
+  );
+  // RecordWriter whose file write rejects exactly once (the first flush), then succeeds.
+  let calls = 0;
+  const written = [];
+  const writer = new RecordWriter("base", {
+    writeFile: async (pathArg, data) => {
+      calls++;
+      if (calls === 1) throw new Error("ENOSPC: disk full");
+      if (pathArg.endsWith(".json")) written.push(data);
+    }
+  });
+  runner._recordWriter = writer;
+  const sw = runner._serialRecordWriter();
+
+  // Row A's append rejects (caller must see the error) ...
+  await assert.rejects(sw.append({ url: "https://x/a", v: 1 }), /disk full/, "failing row surfaces its error");
+  // ... but the chain is not poisoned: row B's append still runs and is written.
+  await sw.append({ url: "https://x/b", v: 2 });
+
+  // Row A pushed its record before the (failed) flush; row B's record is present too.
+  assert.equal(writer.count, 2, "both records are in the writer; B was not skipped");
+  const last = JSON.parse(written[written.length - 1]);
+  assert.deepEqual(last.map((r) => r.url), ["https://x/a", "https://x/b"], "B's successful flush wrote both rows");
 });
