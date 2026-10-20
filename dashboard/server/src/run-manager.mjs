@@ -12,12 +12,18 @@ export const defaultRunnerFactory = (config, logger, deps) => new BatchRunner(co
 // limiter enforces it, so e.g. two runs set to 5 rows each can't open 10 pages.
 export const GLOBAL_MAX_CONCURRENT_ROWS = 6;
 
-// Runs one scrape at a time. Extra start() calls leave their run queued; when the
-// active run reaches a terminal state the next queued run is started.
+// Ceiling on the number of runs executing at once. The auto-drain only ever fills
+// ONE running run on its own; the second concurrent slot is claimed solely by an
+// explicit operator Start (start() allows the count to go 1 -> MAX_CONCURRENT_RUNS).
+export const MAX_CONCURRENT_RUNS = 2;
+
+// Runs up to MAX_CONCURRENT_RUNS scrapes at once. A start() beyond the cap leaves
+// its run queued; when a running run reaches a terminal state the FIFO queue is
+// auto-drained back up to a single running run (see startNextQueued).
 //
 // start(runId) resolves to:
 //   "not-startable" - the run does not exist or is not `queued`/`stopped` (nothing executed)
-//   "queued"        - another run is active; this run waits its turn
+//   "queued"        - the cap is full; this run waits its turn
 //   otherwise       - the run's final state ("done" | "failed" | "stopped")
 export function createRunManager({
   store,
@@ -27,8 +33,10 @@ export function createRunManager({
   runOutDir,
   driveAuth: driveAuthService,
 }) {
-  let active = null; // { runId, runner, stopRequested }
-  let current = null; // promise of the active run's execution (plus queue drain)
+  // Registry of the currently executing runs, keyed by runId.
+  // entry: { runId, runner, stopRequested, promise }
+  const active = new Map();
+  const runningCount = () => active.size;
   // Runs that failed to leave `queued` (finish() could not persist a terminal
   // state). The auto-drain skips them so a broken row cannot be re-picked forever.
   const orphans = new Set();
@@ -141,14 +149,16 @@ export function createRunManager({
     } catch {
       state = entry.stopRequested ? "stopped" : "failed";
     } finally {
-      active = null;
       finish(runId, state);
     }
     return state;
   }
 
+  // Auto-drain target is ONE running run: the queue only ever refills a single
+  // slot on its own. A second concurrent run is started solely by an explicit
+  // operator Start, so queued runs wait until the running count returns to zero.
   function startNextQueued() {
-    if (draining) return null;
+    if (draining || runningCount() > 0) return null;
     let next = null;
     try {
       next = store.nextQueuedRun();
@@ -169,9 +179,9 @@ export function createRunManager({
     if (!run || (run.state !== "queued" && run.state !== "stopped")) {
       return Promise.resolve("not-startable");
     }
-    if (active) {
-      // A stopped run asked to start while another is active goes back in the
-      // queue so the drain picks it up.
+    if (runningCount() >= MAX_CONCURRENT_RUNS) {
+      // At the cap: a stopped run asked to start goes back in the queue so the
+      // drain picks it up; a queued run simply keeps its place.
       if (run.state === "stopped") {
         try {
           store.setRunState(runId, "queued");
@@ -181,41 +191,49 @@ export function createRunManager({
       }
       return Promise.resolve("queued");
     }
-    // Claim the slot synchronously so a racing start() sees it as active.
-    const entry = { runId, runner: null, stopRequested: false };
-    active = entry;
-    const promise = execute(entry).then((state) => {
-      startNextQueued(); // fire-and-forget; start() never rejects
-      return state;
-    });
-    current = promise;
+    // Claim the slot synchronously so a racing start() counts it against the cap.
+    const entry = { runId, runner: null, stopRequested: false, promise: null };
+    active.set(runId, entry);
+    const promise = execute(entry)
+      .finally(() => active.delete(runId))
+      .then((state) => {
+        startNextQueued(); // fire-and-forget; start() never rejects
+        return state;
+      });
+    entry.promise = promise;
     return promise;
   }
 
   return {
     start,
     stop(runId) {
-      if (active && active.runId === runId) {
-        active.stopRequested = true;
-        safeStop(active.runner);
+      const entry = active.get(runId);
+      if (entry) {
+        entry.stopRequested = true;
+        safeStop(entry.runner);
         return true;
       }
       return false;
     },
     // Stops the auto-drain for good (graceful shutdown): runs left queued stay
-    // queued, so idle() only ever waits on the already-active run.
+    // queued, so idle() only waits on the already-active runs.
     shutdown() {
       draining = true;
     },
+    runningCount,
+    // The first active run id (back-compat for a single-run caller), or null.
     activeRunId() {
-      return active ? active.runId : null;
+      for (const runId of active.keys()) return runId;
+      return null;
     },
-    // Resolves once the active run (and any queue drain it triggers) has settled.
+    // Every currently executing run id.
+    activeRunIds() {
+      return [...active.keys()];
+    },
+    // Resolves once all active runs (and any queue drain they trigger) have settled.
     async idle() {
-      while (current) {
-        const c = current;
-        await c.catch(() => {});
-        if (current === c) current = null;
+      while (active.size > 0) {
+        await Promise.allSettled([...active.values()].map((e) => e.promise).filter(Boolean));
       }
     },
   };

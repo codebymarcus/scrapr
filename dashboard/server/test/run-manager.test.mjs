@@ -178,37 +178,118 @@ test("a throwing onItem body is swallowed and does not crash the run", async () 
   db.close();
 });
 
-test("a second start while active does not run concurrently; queued run auto-starts after", async () => {
+test("two runs can be active at once; a third start stays queued", async () => {
   const { db, store, emit, makeRun } = setup();
   const r1 = makeRun(["https://e.com/1"]);
   const r2 = makeRun(["https://e.com/2"]);
+  const r3 = makeRun(["https://e.com/3"]);
   const gate = deferred();
   let concurrent = 0;
   let maxConcurrent = 0;
   const factory = fakeFactory(async () => {
     concurrent += 1;
     maxConcurrent = Math.max(maxConcurrent, concurrent);
-    if (factory.created.length === 1) await gate.promise;
+    // The first two runs block together so both are active at the same time.
+    if (factory.created.length <= 2) await gate.promise;
     concurrent -= 1;
     return 0;
   });
   const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
   const p1 = mgr.start(r1.id);
-  assert.equal(mgr.activeRunId(), r1.id);
-  const second = await mgr.start(r2.id);
-  assert.equal(second, "queued");
-  assert.equal(store.getRun(r2.id).state, "queued");
-  assert.equal(factory.created.length, 1);
+  const p2 = mgr.start(r2.id);
+  assert.equal(mgr.runningCount(), 2);
+  assert.deepEqual([...mgr.activeRunIds()].sort((a, b) => a - b), [r1.id, r2.id].sort((a, b) => a - b));
+  assert.equal(store.getRun(r1.id).state, "running");
+  assert.equal(store.getRun(r2.id).state, "running");
+
+  // A third start is beyond MAX_CONCURRENT_RUNS -> it stays queued.
+  const third = await mgr.start(r3.id);
+  assert.equal(third, "queued");
+  assert.equal(store.getRun(r3.id).state, "queued");
+  assert.equal(factory.created.length, 2);
 
   gate.resolve();
-  await p1;
-  // r2 was auto-started on completion of r1 and its (instant) fake run finishes.
+  await Promise.all([p1, p2]);
+  // r3 is auto-drained once a slot frees (the auto-drain fills one slot).
   await mgr.idle();
   assert.equal(store.getRun(r1.id).state, "done");
   assert.equal(store.getRun(r2.id).state, "done");
-  assert.equal(factory.created.length, 2);
-  assert.equal(maxConcurrent, 1);
+  assert.equal(store.getRun(r3.id).state, "done");
+  assert.equal(factory.created.length, 3);
+  assert.equal(maxConcurrent, 2);
   assert.equal(mgr.activeRunId(), null);
+  assert.deepEqual(mgr.activeRunIds(), []);
+  db.close();
+});
+
+test("auto-drain fills only one slot; the second is manual-only", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const a = makeRun(["https://e.com/1"]);
+  const b = makeRun(["https://e.com/2"]);
+  const c = makeRun(["https://e.com/3"]);
+  const gateA = deferred();
+  const gateRest = deferred();
+  const factory = fakeFactory(async (runner) => {
+    const idx = factory.created.indexOf(runner);
+    if (idx === 0) await gateA.promise; // A blocks until released
+    else await gateRest.promise; // the auto-started run blocks so we can inspect the registry
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const pA = mgr.start(a.id);
+  assert.equal(mgr.runningCount(), 1);
+  // b and c sit queued; only A is active.
+  assert.equal(store.getRun(b.id).state, "queued");
+  assert.equal(store.getRun(c.id).state, "queued");
+
+  gateA.resolve();
+  await pA;
+  // A finished -> auto-drain starts exactly ONE queued run (FIFO: b), never two.
+  assert.equal(mgr.runningCount(), 1);
+  assert.equal(factory.created.length, 2);
+  assert.equal(store.getRun(b.id).state, "running");
+  assert.equal(store.getRun(c.id).state, "queued");
+
+  gateRest.resolve();
+  await mgr.idle();
+  // b finished -> auto-drain then starts c (still one slot at a time).
+  assert.equal(store.getRun(b.id).state, "done");
+  assert.equal(store.getRun(c.id).state, "done");
+  db.close();
+});
+
+test("stop targets the named run; the other keeps running", async () => {
+  const { db, store, emit, makeRun } = setup();
+  const r1 = makeRun(["https://e.com/1"]);
+  const r2 = makeRun(["https://e.com/2"]);
+  const g1 = deferred();
+  const g2 = deferred();
+  const factory = fakeFactory(async (runner) => {
+    const idx = factory.created.indexOf(runner);
+    await (idx === 0 ? g1.promise : g2.promise);
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
+  const p1 = mgr.start(r1.id);
+  const p2 = mgr.start(r2.id);
+  assert.equal(mgr.runningCount(), 2);
+
+  // Stop only r1; r2 must be untouched.
+  assert.equal(mgr.stop(r1.id), true);
+  assert.equal(factory.created[0].stopped, true);
+  assert.equal(factory.created[1].stopped, false);
+
+  g1.resolve();
+  assert.equal(await p1, "stopped");
+  assert.equal(mgr.runningCount(), 1);
+  assert.deepEqual(mgr.activeRunIds(), [r2.id]);
+  assert.equal(store.getRun(r2.id).state, "running");
+
+  g2.resolve();
+  assert.equal(await p2, "done");
+  await mgr.idle();
+  assert.equal(store.getRun(r1.id).state, "stopped");
+  assert.equal(store.getRun(r2.id).state, "done");
   db.close();
 });
 
@@ -298,24 +379,29 @@ test("a stopped run can be started again", async () => {
   db.close();
 });
 
-test("a stopped run started while another is active is re-queued and drained", async () => {
+test("a stopped run started while the cap is full is re-queued and drained", async () => {
   const { db, store, emit, makeRun } = setup();
   const r1 = makeRun(["https://e.com/1"]);
   const r2 = makeRun(["https://e.com/2"]);
-  store.setRunState(r2.id, "stopped");
+  const r3 = makeRun(["https://e.com/3"]);
+  store.setRunState(r3.id, "stopped");
   const gate = deferred();
   const factory = fakeFactory(async () => {
-    if (factory.created.length === 1) await gate.promise;
+    // The two initial active runs block; the drained run is instant.
+    if (factory.created.length <= 2) await gate.promise;
     return 0;
   });
   const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
   const p1 = mgr.start(r1.id);
-  assert.equal(await mgr.start(r2.id), "queued");
-  assert.equal(store.getRun(r2.id).state, "queued");
+  const p2 = mgr.start(r2.id);
+  assert.equal(mgr.runningCount(), 2);
+  // A stopped run started while both slots are full goes back to queued.
+  assert.equal(await mgr.start(r3.id), "queued");
+  assert.equal(store.getRun(r3.id).state, "queued");
   gate.resolve();
-  await p1;
+  await Promise.all([p1, p2]);
   await mgr.idle();
-  assert.equal(store.getRun(r2.id).state, "done");
+  assert.equal(store.getRun(r3.id).state, "done");
   db.close();
 });
 
@@ -375,10 +461,11 @@ test("an orphan queued row (state cannot be persisted) is not re-picked forever"
   db.close();
 });
 
-test("after shutdown(), stopping the active run does not auto-start the queued run", async () => {
+test("after shutdown(), stopping an active run does not auto-start the queued run", async () => {
   const { db, store, emit, makeRun } = setup();
   const r1 = makeRun(["https://e.com/1"]);
   const r2 = makeRun(["https://e.com/2"]);
+  const r3 = makeRun(["https://e.com/3"]);
   const gate = deferred();
   const factory = fakeFactory(async () => {
     await gate.promise;
@@ -386,15 +473,17 @@ test("after shutdown(), stopping the active run does not auto-start the queued r
   });
   const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o" });
   const p1 = mgr.start(r1.id);
-  assert.equal(await mgr.start(r2.id), "queued");
+  const p2 = mgr.start(r2.id);
+  assert.equal(await mgr.start(r3.id), "queued");
 
   mgr.shutdown();
   assert.equal(mgr.stop(r1.id), true);
   gate.resolve();
   assert.equal(await p1, "stopped");
+  await p2;
   await mgr.idle(); // resolves: there is no newly started run to wait on
-  assert.equal(factory.created.length, 1);
-  assert.equal(store.getRun(r2.id).state, "queued");
+  assert.equal(factory.created.length, 2);
+  assert.equal(store.getRun(r3.id).state, "queued");
   assert.equal(mgr.activeRunId(), null);
   db.close();
 });
