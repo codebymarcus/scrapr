@@ -159,3 +159,8 @@ test("createRunSchema accepts concurrency 1..5 and rejects out-of-range/non-int"
   assert.equal(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 6 } }).ok, false);
   assert.equal(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 2.5 } }).ok, false);
 });
+
+test("createRunSchema concurrency lower boundary: 0 rejected, 1 accepted", () => {
+  assert.equal(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 0 } }).ok, false);
+  assert.ok(parseOr400(createRunSchema, { projectId: 1, overrides: { concurrency: 1 } }).ok);
+});

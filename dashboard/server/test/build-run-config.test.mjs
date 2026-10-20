@@ -252,3 +252,13 @@ test("rowConcurrency defaults to 1 and applies to text runs too (overrides other
   assert.equal(text.rowConcurrency, 4);
   assert.notEqual(text.drive, true); // drive override still ignored for text
 });
+
+test("rowConcurrency defensively clamps non-finite, non-number and non-integer values", () => {
+  const rc = (concurrency) =>
+    buildRunConfig(concImageRecipe, { runOutDir: "/x", overrides: { concurrency } }).rowConcurrency;
+  assert.equal(rc(NaN), 1);
+  assert.equal(rc(Infinity), 1);
+  assert.equal(rc("3"), 1); // strings are not coerced
+  assert.equal(rc(2.6), 3); // Math.round
+  assert.equal(rc(-4), 1);
+});
