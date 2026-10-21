@@ -163,6 +163,35 @@ test("onItem persists output name + upload state and emits them on the item even
   db.close();
 });
 
+test("onItem enriches the item event with status, reason and uploadedAt from the stored row", async () => {
+  const { db, store, emit, makeRun, events } = setup();
+  const run = makeRun(["https://e.com/1", "https://e.com/2"]);
+  const [a, b] = store.listItems(run.id);
+  const factory = fakeFactory(async (_r, deps) => {
+    // The engine persists status/reason on the row immediately before onItem fires.
+    store.setItemStatus(a.id, "done");
+    store.setItemReason(a.id, "");
+    deps.onItem({ id: a.id, url: a.url, saved: 3, total: 3, ok: true, uploaded: true, driveLink: "http://d/1" });
+    store.setItemStatus(b.id, "retry");
+    store.setItemReason(b.id, "FAILED");
+    deps.onItem({ id: b.id, url: b.url, saved: 0, total: 0, ok: false, uploaded: false, driveLink: null });
+    return 0;
+  });
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", now: () => "2026-01-01T00:00:00.000Z" });
+  await mgr.start(run.id);
+  const itemEvents = events.filter((e) => e.ev.type === "item");
+  assert.equal(itemEvents.length, 2);
+  // The completed, uploaded row: status/reason mirror the DB and uploadedAt is the upload time.
+  assert.equal(itemEvents[0].ev.status, "done");
+  assert.equal(itemEvents[0].ev.reason, "");
+  assert.equal(itemEvents[0].ev.uploadedAt, "2026-01-01T00:00:00.000Z");
+  // The failed row: status/reason mirror the DB and there is no upload time.
+  assert.equal(itemEvents[1].ev.status, "retry");
+  assert.equal(itemEvents[1].ev.reason, "FAILED");
+  assert.equal(itemEvents[1].ev.uploadedAt, null);
+  db.close();
+});
+
 test("a throwing onItem body is swallowed and does not crash the run", async () => {
   const { db, store, emit, makeRun } = setup();
   const run = makeRun(["https://e.com/1"]);

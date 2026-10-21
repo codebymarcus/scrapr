@@ -111,6 +111,10 @@ export function createRunManager({
               outputSize: rec.outputSize,
             });
           }
+          // Read the row back so the event carries exactly what a refetch would:
+          // status/reason were persisted by the engine before onItem fired, and
+          // uploaded_at was just written above. The client row then updates live.
+          const row = store.getItem(rec.id);
           safeEmit(runId, {
             type: "item",
             id: rec.id,
@@ -122,6 +126,9 @@ export function createRunManager({
             outputName: rec.outputName ?? null,
             uploaded: !!rec.uploaded,
             driveLink: rec.driveLink ?? null,
+            status: row?.status,
+            reason: row?.reason ?? null,
+            uploadedAt: row?.uploaded_at ?? null,
           });
         } catch (e) {
           try {

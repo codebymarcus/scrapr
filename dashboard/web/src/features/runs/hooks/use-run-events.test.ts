@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent } from "@/lib/schemas";
 import { makeItem, makeRun, makeSummary } from "../test/fixtures";
+import { deriveItemStatus, isUploaded } from "../types";
 import type { CachedRunDetail } from "../types";
 import { runKeys } from "./runs-keys";
 import { MAX_LOG_LINES, useRunEvents } from "./use-run-events";
@@ -177,6 +178,58 @@ describe("useRunEvents", () => {
       total: 4,
     });
     expect(cached?.items.find((item) => item.id === 11)?.saved).toBeNull();
+  });
+
+  it("flips a cached row to completed and uploaded from an item event", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() =>
+      sockets[0].emit({
+        type: "item",
+        id: 10,
+        saved: 9,
+        total: 9,
+        ok: true,
+        status: "done",
+        reason: "",
+        uploaded: true,
+        uploadedAt: "2026-10-21T10:00:00.000Z",
+        driveLink: "http://drive/10",
+      }),
+    );
+
+    const item = queryClient
+      .getQueryData<CachedRunDetail>(runKeys.detail(1))
+      ?.items.find((i) => i.id === 10);
+    expect(item).toBeDefined();
+    expect(deriveItemStatus(item!)).toBe("completed");
+    expect(isUploaded(item!)).toBe(true);
+    expect(item?.uploaded_at).toBe("2026-10-21T10:00:00.000Z");
+    expect(item?.drive_link).toBe("http://drive/10");
+  });
+
+  it("flips a cached row to failed and shows the reason from an item event", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() =>
+      sockets[0].emit({
+        type: "item",
+        id: 11,
+        saved: 0,
+        ok: false,
+        status: "retry",
+        reason: "FAILED",
+      }),
+    );
+
+    const item = queryClient
+      .getQueryData<CachedRunDetail>(runKeys.detail(1))
+      ?.items.find((i) => i.id === 11);
+    expect(deriveItemStatus(item!)).toBe("failed");
+    expect(item?.reason).toBe("FAILED");
+    expect(isUploaded(item!)).toBe(false);
   });
 
   it("refetches the detail when an item event names an unknown item", () => {

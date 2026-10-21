@@ -220,6 +220,10 @@ export const runEventSchema = z.discriminatedUnion("type", [
     outputName: z.string().nullish(),
     uploaded: z.boolean().optional(),
     driveLink: z.string().nullish(),
+    // Mirror the stored row so the cached item updates live like a refetch.
+    status: z.string().optional(),
+    reason: z.string().nullish(),
+    uploadedAt: z.string().nullish(),
     ts: z.number().optional(),
   }),
   z.object({
