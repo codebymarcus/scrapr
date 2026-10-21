@@ -72,11 +72,14 @@ test("execute merges run overrides and in-memory driveAuth into the engine confi
   const run = store.createRun({
     projectId: project.id,
     label: "L",
-    overrides: { drive: true, driveFolder: "FOLDER", driveSubfolder: "sub" },
+    overrides: { drive: true, driveFolder: "FOLDER", driveSubfolder: "sub", driveAccountId: "acc" },
   });
   store.addItems(run.id, ["https://e.com/1"]);
   const creds = { clientId: "cid", clientSecret: "sec", token: { refresh_token: "r" } };
-  const driveAuth = { loadAuthConfig: () => creds };
+  const driveAuth = {
+    loadAuthConfig: (id) => (id === "acc" ? creds : null),
+    listAccounts: () => [{ id: "acc", connected: true }],
+  };
   const factory = fakeFactory(async () => 0);
   const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", driveAuth });
   await mgr.start(run.id);
@@ -102,6 +105,69 @@ test("execute without driveAuth or overrides leaves config.driveAuth unset; unco
   const driveAuth = { loadAuthConfig: () => null };
   await createRunManager({ store, emit, runnerFactory: f2, runOutDir: () => "/o", driveAuth }).start(b.id);
   assert.equal(f2.created[0].config.driveAuth, undefined);
+  db.close();
+});
+
+test("a run whose chosen Drive account is gone forces config.drive off, logs a warning, and still completes", async () => {
+  const { db, store, project, emit, events } = setup();
+  const run = store.createRun({
+    projectId: project.id,
+    label: "L",
+    overrides: { drive: true, driveAccountId: "gone" },
+  });
+  store.addItems(run.id, ["https://e.com/1"]);
+  const driveAuth = {
+    loadAuthConfig: (id) => (id === "ok" ? { clientId: "c" } : null),
+    listAccounts: () => [{ id: "ok", connected: true }, { id: "other", connected: true }],
+  };
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", driveAuth });
+  assert.equal(await mgr.start(run.id), "done");
+  const cfg = factory.created[0].config;
+  assert.equal(cfg.drive, false);
+  assert.equal(cfg.driveAuth, undefined);
+  const warned = events.some((e) => e.ev.type === "log" && e.ev.level === "warn" && /unavailable/i.test(e.ev.message));
+  assert.ok(warned, "a run-console warning is logged");
+  db.close();
+});
+
+test("a run whose chosen Drive account resolves keeps config.drive true and sets driveAuth", async () => {
+  const { db, store, project, emit } = setup();
+  const run = store.createRun({
+    projectId: project.id,
+    label: "L",
+    overrides: { drive: true, driveAccountId: "ok" },
+  });
+  store.addItems(run.id, ["https://e.com/1"]);
+  const creds = { clientId: "cid", clientSecret: "sec", token: { refresh_token: "r" } };
+  const driveAuth = {
+    loadAuthConfig: (id) => (id === "ok" ? creds : null),
+    listAccounts: () => [{ id: "ok", connected: true }],
+  };
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", driveAuth });
+  assert.equal(await mgr.start(run.id), "done");
+  const cfg = factory.created[0].config;
+  assert.equal(cfg.drive, true);
+  assert.deepEqual(cfg.driveAuth, creds);
+  db.close();
+});
+
+test("a run with Drive on but no driveAccountId resolves to the single connected account", async () => {
+  const { db, store, project, emit } = setup();
+  const run = store.createRun({ projectId: project.id, label: "L", overrides: { drive: true } });
+  store.addItems(run.id, ["https://e.com/1"]);
+  const creds = { clientId: "cid", clientSecret: "sec", token: {} };
+  const driveAuth = {
+    loadAuthConfig: (id) => (id === "only" ? creds : null),
+    listAccounts: () => [{ id: "only", connected: true }],
+  };
+  const factory = fakeFactory(async () => 0);
+  const mgr = createRunManager({ store, emit, runnerFactory: factory, runOutDir: () => "/o", driveAuth });
+  assert.equal(await mgr.start(run.id), "done");
+  const cfg = factory.created[0].config;
+  assert.equal(cfg.drive, true);
+  assert.deepEqual(cfg.driveAuth, creds);
   db.close();
 });
 

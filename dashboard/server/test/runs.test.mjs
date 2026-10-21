@@ -418,8 +418,13 @@ function fakeUploader(calls = []) {
     },
   });
 }
-const connected = { loadAuthConfig: () => ({ clientId: "c", clientSecret: "s", token: {} }) };
-const disconnected = { loadAuthConfig: () => null };
+// Single connected account; runs created here carry no driveAccountId, so upload
+// resolves via the single-account back-compat path.
+const connected = {
+  loadAuthConfig: () => ({ clientId: "c", clientSecret: "s", token: {} }),
+  listAccounts: () => [{ id: "acc", connected: true }],
+};
+const disconnected = { loadAuthConfig: () => null, listAccounts: () => [] };
 
 // Create a done image run with one scraped item (output "Ch 1"); optionally write its cbz.
 async function uploadFixture(deps, { writeFile = true } = {}) {

@@ -93,6 +93,9 @@ export const createRunSchema = z.object({
       drive: z.boolean().optional(),
       driveFolder: z.string().optional(),
       driveSubfolder: z.string().optional(),
+      // The connected Drive account this run uploads to (resolved to credentials
+      // at upload time; see resolve-drive-auth.mjs).
+      driveAccountId: z.string().optional(),
       // Output packaging: picks the engine's cbz/pdf/keepLoose flags.
       format: z.enum(["cbz", "pdf", "both", "loose"]).optional(),
     })

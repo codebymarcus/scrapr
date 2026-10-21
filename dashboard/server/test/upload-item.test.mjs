@@ -22,7 +22,11 @@ function setup({ recipe = { name: "Img", contentType: "image" }, item = {}, auth
       Object.assign(items.get(id), { uploaded_at: uploadedAt, drive_link: driveLink, output_size: outputSize });
     },
   };
-  const driveAuth = { loadAuthConfig: () => authConfig };
+  const driveAuth = {
+    loadAuthConfig: () => authConfig,
+    // Single-connected back-compat: the run carries no driveAccountId here.
+    listAccounts: () => (authConfig ? [{ id: "acc", connected: true }] : []),
+  };
   const calls = { configs: [], paths: [] };
   const driveUploaderFactory = async (config) => {
     calls.configs.push(config);
@@ -79,6 +83,32 @@ test("Drive not connected -> unavailable, nothing uploaded", async () => {
   await assert.rejects(uploadItem(s.deps, 1, 5), { code: "unavailable" });
   assert.equal(s.calls.paths.length, 0);
   assert.equal(s.uploads.length, 0);
+  s.cleanup();
+});
+
+test("resolves by the run's driveAccountId; a gone account -> unavailable, nothing uploaded", async () => {
+  const s = setup({ files: ["Ch 1.cbz"] });
+  s.deps.store.getRun = (id) => (id === 1 ? { id: 1, project_id: 7, state: "done", overrides: { driveFolder: "F", driveAccountId: "gone" } } : null);
+  s.deps.driveAuth = {
+    loadAuthConfig: (id) => (id === "ok" ? { clientId: "c", clientSecret: "s", token: {} } : null),
+    listAccounts: () => [{ id: "ok", connected: true }, { id: "other", connected: true }],
+  };
+  await assert.rejects(uploadItem(s.deps, 1, 5), { code: "unavailable" });
+  assert.equal(s.calls.paths.length, 0);
+  assert.equal(s.uploads.length, 0);
+  s.cleanup();
+});
+
+test("resolves by the run's driveAccountId; an available account uploads", async () => {
+  const s = setup({ files: ["Ch 1.cbz"] });
+  s.deps.store.getRun = (id) => (id === 1 ? { id: 1, project_id: 7, state: "done", overrides: { driveFolder: "F", driveAccountId: "ok" } } : null);
+  s.deps.driveAuth = {
+    loadAuthConfig: (id) => (id === "ok" ? { clientId: "c", clientSecret: "s", token: {} } : null),
+    listAccounts: () => [{ id: "ok", connected: true }, { id: "other", connected: true }],
+  };
+  const res = await uploadItem(s.deps, 1, 5);
+  assert.equal(res.driveLink, "https://drive/x");
+  assert.equal(s.calls.paths.length, 1);
   s.cleanup();
 });
 
