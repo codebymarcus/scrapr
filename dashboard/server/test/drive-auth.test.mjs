@@ -149,6 +149,37 @@ test("exchangeCode with targetAccountId updates that row and sets its sub/email"
   assert.equal(store.getDriveAccountBySub("sub-9").id, "card-1");
 });
 
+test("reconnecting a card into a sub already owned by another card throws and mutates nothing", async () => {
+  const store = makeStore();
+  const key = randomBytes(32);
+  const factory = fakeFactory({ sub: "sub-G", email: "g@example.com" });
+  const auth = createDriveAuth(base(store, factory, key));
+
+  // Card G is connected and owns sub-G.
+  await auth.exchangeCode("cg");
+  const gBefore = { ...store.getDriveAccount("sub-G") };
+
+  // Card M exists with its own token/sub; operator reconnects it but signs in
+  // as sub-G (already owned by card G).
+  store.upsertDriveAccount({
+    id: "card-M",
+    sub: "sub-M",
+    label: "Card M",
+    email: "m@example.com",
+    token: "m-token-blob",
+  });
+  const mBefore = { ...store.getDriveAccount("card-M") };
+
+  await assert.rejects(
+    () => auth.exchangeCode("cm", { targetAccountId: "card-M" }),
+    /already connected/,
+  );
+
+  assert.deepEqual(store.getDriveAccount("sub-G"), gBefore, "card G untouched");
+  assert.deepEqual(store.getDriveAccount("card-M"), mBefore, "card M untouched");
+  assert.equal(store.listDriveAccounts().length, 2);
+});
+
 test("loadAuthConfig round-trips the decrypted token and is null for unknown id", async () => {
   const store = makeStore();
   const factory = fakeFactory({ sub: "sub-1", email: "a@example.com" });

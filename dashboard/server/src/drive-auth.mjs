@@ -80,6 +80,15 @@ export function createDriveAuth({
     const token = encryptSecret(JSON.stringify(tokens), key);
 
     if (targetAccountId) {
+      // Card-scoped reconnect must stay one row per Google account: refuse if
+      // this sub is already owned by a different card. A null sub claims no
+      // identity, so skip the cross-row check and just refresh the token.
+      if (sub) {
+        const owner = store.getDriveAccountBySub(sub);
+        if (owner && owner.id !== targetAccountId) {
+          throw new Error("That Google account is already connected as another account");
+        }
+      }
       store.updateDriveAccountToken(targetAccountId, { token, sub, email });
       return targetAccountId;
     }
