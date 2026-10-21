@@ -470,7 +470,7 @@ describe("NewRunDialog", () => {
   });
 });
 
-describe("NewRunDialog — Concurrent rows", () => {
+describe("NewRunDialog: Concurrent rows", () => {
   beforeEach(() => {
     // Earlier tests remember a Drive folder per project; start clean.
     useDriveFolderStore.setState({ folderByProject: {} });
@@ -547,13 +547,13 @@ describe("NewRunDialog — Concurrent rows", () => {
   });
 });
 
-describe("NewRunDialog — remembered Drive folder (zustand)", () => {
+describe("NewRunDialog: remembered Drive folder (zustand)", () => {
   beforeEach(() => {
     useDriveFolderStore.setState({ folderByProject: {} });
     try {
       localStorage.clear();
     } catch {
-      // jsdom without storage — ignore
+      // jsdom without storage, ignore
     }
   });
 
@@ -590,7 +590,7 @@ describe("NewRunDialog — remembered Drive folder (zustand)", () => {
     useDriveFolderStore.setState({ folderByProject: { 4: "folder-four" } });
     setup();
 
-    await pickProject("Gallery"); // id 3 — recipe default, not project 4's value
+    await pickProject("Gallery"); // id 3, recipe default, not project 4's value
 
     expect(screen.getByLabelText("Folder ID")).not.toHaveValue("folder-four");
   });

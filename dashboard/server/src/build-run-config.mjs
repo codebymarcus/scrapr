@@ -33,7 +33,7 @@ function applyOverrides(config, overrides) {
 
 // Mirror the CLI's finalize() packaging normalization (src/config.mjs): PDF
 // embeds baseline JPEG/PNG, so images must be converted away from "keep" before
-// the pdf packager wraps them — otherwise the PDF comes out empty/broken.
+// the pdf packager wraps them, otherwise the PDF comes out empty/broken.
 function normalizePackaging(config) {
   config.format = String(config.format).toLowerCase();
   if (config.pdf && config.format !== "png") config.format = "jpg";

@@ -79,7 +79,7 @@ describe("RunsPage", () => {
     ).toBeInTheDocument();
 
     const resumable = screen.getByRole("region", {
-      name: "Stopped — resumable",
+      name: "Stopped (resumable)",
     });
     expect(
       within(resumable).getByRole("heading", { name: "Stopped run" }),
@@ -127,7 +127,7 @@ describe("RunsPage", () => {
     const strip = await screen.findByRole("group", { name: "Run stats" });
     expect(
       within(strip).getByText("Failing hosts").nextSibling,
-    ).toHaveTextContent("—");
+    ).toHaveTextContent("-");
   });
 
   it("keeps an action's 409 message after the refetch regroups the card", async () => {
@@ -162,7 +162,7 @@ describe("RunsPage", () => {
       name: "Running",
     });
     expect(
-      screen.queryByRole("region", { name: "Stopped — resumable" }),
+      screen.queryByRole("region", { name: "Stopped (resumable)" }),
     ).not.toBeInTheDocument();
     expect(await within(runningGroup).findByRole("alert")).toHaveTextContent(
       "Cannot start a running run",
@@ -177,7 +177,7 @@ describe("RunsPage", () => {
       screen.queryByRole("region", { name: "Running" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("region", { name: "Stopped — resumable" }),
+      screen.queryByRole("region", { name: "Stopped (resumable)" }),
     ).not.toBeInTheDocument();
   });
 

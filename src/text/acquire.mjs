@@ -39,14 +39,14 @@ export async function acquireAndExtract({ url, mode, opts, session, config, logg
         // A loaded page with zero matches is a clean success for records modes
         // (pattern/selector); only "article" escalates (it may be JS-rendered).
         if (!payload.empty || mode !== "article") return { status: "ok", payload, via: "http", bytes, requests };
-        logger.verbose?.(`static fetch yielded nothing for ${url} — escalating to browser`);
+        logger.verbose?.(`static fetch yielded nothing for ${url}, escalating to browser`);
       } else {
         if (!res.ok) staticFailCode = FailureCode.HTTP_ERROR; // 2xx non-HTML stays null
-        logger.verbose?.(`static fetch not usable (status=${res.status} type=${ctype || "?"}) — escalating`);
+        logger.verbose?.(`static fetch not usable (status=${res.status} type=${ctype || "?"}), escalating`);
       }
     } catch (e) {
       staticFailCode = mapError(e);
-      logger.verbose?.(`static fetch failed for ${url} (${e?.message || e}) — escalating`);
+      logger.verbose?.(`static fetch failed for ${url} (${e?.message || e}), escalating`);
     }
   }
 

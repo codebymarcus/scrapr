@@ -295,7 +295,7 @@ export function NewRunDialog({
         />
       </Field>
       <Text variant="small" tone="secondary" className={styles.hint}>
-        1 = sequential (safe). Higher scrapes more rows at once — faster, but
+        1 = sequential (safe). Higher scrapes more rows at once: faster, but
         hits the site harder. Pages within a row still scrape one at a time.
       </Text>
       {showDrive ? (

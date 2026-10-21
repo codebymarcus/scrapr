@@ -26,7 +26,7 @@ export function StatStrip({
       {stats.map((stat) => (
         <div key={stat.label} className={styles.stat}>
           <dt className={styles.label}>{stat.label}</dt>
-          <dd className={styles.value}>{stat.value ?? "—"}</dd>
+          <dd className={styles.value}>{stat.value ?? "-"}</dd>
         </div>
       ))}
     </dl>

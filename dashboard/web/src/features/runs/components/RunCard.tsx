@@ -128,7 +128,7 @@ export function RunCard({
             label={counts ?? "Progress unavailable"}
           />
           <span className={styles.counts}>
-            {counts ? `${counts} items` : "—"}
+            {counts ? `${counts} items` : "-"}
           </span>
         </div>
       ) : null}

@@ -34,7 +34,7 @@ async function runWith({ rowConcurrency, jobs: n, stopAtIndex }) {
     processedIds.push(idx);
     inFlight++;
     maxInFlight = Math.max(maxInFlight, inFlight);
-    await tick(); // yield so other workers can start — overlap becomes observable
+    await tick(); // yield so other workers can start: overlap becomes observable
     inFlight--;
     return { saved: 1, total: 1, complete: true };
   };

@@ -7,8 +7,8 @@
 //
 // `createRowLimiter(max)` → { acquire(): Promise<() => void>, inUse(): number }.
 // acquire() resolves immediately with a release fn while `inUse < max`; otherwise
-// it queues FIFO and resolves when a slot frees. The release fn is idempotent — a
-// double-release must not over-credit the semaphore — and pulls the next waiter.
+// it queues FIFO and resolves when a slot frees. The release fn is idempotent: a
+// double-release must not over-credit the semaphore, and pulls the next waiter.
 export function createRowLimiter(max) {
   // Clamp so a misconfigured max can never deadlock acquire().
   const limit = Math.max(1, Math.floor(Number(max) || 0));

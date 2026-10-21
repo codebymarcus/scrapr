@@ -151,14 +151,14 @@ export class DriveUploader {
 
     const existing = await this._findExisting(name);
     if (existing) {
-      this.logger.muted(`Drive: "${name}" already there (${existing.id}) — skipping`);
+      this.logger.muted(`Drive: "${name}" already there (${existing.id}), skipping`);
       return existing;
     }
 
     const requestBody = { name };
     if (this.folderId) requestBody.parents = [this.folderId];
     const total = statSync(filePath).size;
-    // A fresh read stream per attempt — a stream can't be replayed once consumed.
+    // A fresh read stream per attempt: a stream can't be replayed once consumed.
     const res = await this._withRetry(
       () =>
         this.drive.files.create(

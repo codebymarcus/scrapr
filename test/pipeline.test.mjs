@@ -413,7 +413,7 @@ test("run() uses an injected createJobSource", async () => {
     { createJobSource: () => { used = true; return fakeSource; } });
   const code = await runner.run();
   assert.equal(used, true);
-  assert.equal(code, 1); // "no links found" path — no browser launched
+  assert.equal(code, 1); // "no links found" path, no browser launched
 });
 
 test("_runJobs calls deps.onItem with each item's result record", async () => {

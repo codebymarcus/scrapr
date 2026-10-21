@@ -1,11 +1,11 @@
 // PageCache: a per-job, on-disk cache of downloaded page images, keyed by their
 // source URL. It lets an interrupted job resume without re-downloading pages it
-// already has — the capture layer seeds from it and writes through to it, and
+// already has: the capture layer seeds from it and writes through to it, and
 // the browser is routed to serve cached images from disk instead of the network.
 //
 // Layout (one dir per job, kept between runs, deleted on success):
-//   <dir>/index.json          — { total, issueDir, entries: { url: {...} } }
-//   <dir>/<sha1(url)>.<ext>    — the raw image bytes for each page
+//   <dir>/index.json          - { total, issueDir, entries: { url: {...} } }
+//   <dir>/<sha1(url)>.<ext>    - the raw image bytes for each page
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";

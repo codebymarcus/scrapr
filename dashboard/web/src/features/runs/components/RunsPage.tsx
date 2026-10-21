@@ -170,12 +170,12 @@ export function RunsPage({
           running={groups.running.length}
           queuedItems={pendingItems}
           doneToday={doneToday}
-          // Per-host failures are not exposed by the API yet: show "—".
+          // Per-host failures are not exposed by the API yet: show "-".
           failingHosts={null}
         />
         <RunGroup label="Running">{renderCards(groups.running)}</RunGroup>
         <RunGroup label="Queued">{renderCards(groups.queued)}</RunGroup>
-        <RunGroup label="Stopped — resumable">
+        <RunGroup label="Stopped (resumable)">
           {renderCards(groups.stopped)}
         </RunGroup>
         <RunGroup label="Recent">{renderCards(groups.recent)}</RunGroup>

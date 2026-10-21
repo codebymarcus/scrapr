@@ -16,7 +16,7 @@ async function tmp(fn) {
 // A real 1x1 JPEG (sharp is already a dependency) so pdf-lib.embedJpg accepts it.
 const JPG = await sharp({ create: { width: 1, height: 1, channels: 3, background: "#ffffff" } }).jpeg().toBuffer();
 
-// CbzPackager writes the ZIP STORED (level 0 — images are already compressed), so
+// CbzPackager writes the ZIP STORED (level 0, images are already compressed), so
 // an uncompressed ComicInfo.xml entry appears verbatim in the raw .cbz bytes.
 // That lets us assert on the file bytes without adding a zip-reader dependency.
 

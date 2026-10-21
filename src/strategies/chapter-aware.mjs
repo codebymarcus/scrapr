@@ -3,7 +3,7 @@
 //
 // On such a reader, opening a chapter URL (e.g. /event/ultimate-marvel/395) shows
 // the target chapter, but pressing the advance key flows OUT into adjacent
-// chapters and only loops back to the target's remaining pages much later — so
+// chapters and only loops back to the target's remaining pages much later, so
 // Stage 1 (keyboard-advance) stalls (its stagnant-limit trips while it traverses
 // a neighbouring chapter whose images are filtered out) and never collects the
 // target chapter.
@@ -108,7 +108,7 @@ export class ChapterAwareStrategy {
       logger.verbose?.(`chapter-aware: locked target chapter dir ${dir}`);
     }
 
-    // NB: do NOT click inside the reader — on a continuous reader a click
+    // NB: do NOT click inside the reader; on a continuous reader a click
     // advances into the next chapter, moving the URL off the target chapter so
     // #page-N would then address the wrong chapter. Fragment navigation alone
     // keeps us pinned to the opened chapter.

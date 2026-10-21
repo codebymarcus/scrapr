@@ -87,7 +87,7 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
   });
 
   // Mutating GET (Google redirects the browser here): always ends in a redirect
-  // to /settings with a `drive` outcome — never a 500.
+  // to /settings with a `drive` outcome, never a 500.
   app.get("/api/drive/callback", async (req, reply) => {
     const { code, state, error } = req.query ?? {};
     const cookieState = readCookie(req.headers.cookie, STATE_COOKIE);

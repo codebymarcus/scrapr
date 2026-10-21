@@ -48,7 +48,7 @@ async function readErrorText(response: Response): Promise<string | null> {
       }
     }
   } catch {
-    // Not JSON (or unreadable) — fall back to the generic message.
+    // Not JSON (or unreadable), fall back to the generic message.
   }
   return null;
 }
@@ -90,7 +90,7 @@ export function createApiClient(config: {
       response = await fetchFn(url, init);
     } catch (error) {
       if (signal?.aborted) {
-        throw error; // caller cancellation — keep it a cancellation
+        throw error; // caller cancellation: keep it a cancellation
       }
       if (timeout.aborted) {
         throw new ApiError("The request took too long to respond.", {

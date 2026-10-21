@@ -52,7 +52,7 @@ describe("createApiClient", () => {
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.method).toBe("POST");
     expect(init.body).toBe(form);
-    // No explicit Content-Type — the browser sets the multipart boundary.
+    // No explicit Content-Type, the browser sets the multipart boundary.
     expect(init.headers).toBeUndefined();
   });
 
