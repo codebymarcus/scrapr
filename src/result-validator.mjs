@@ -1,4 +1,4 @@
-// Judge an acquire pass's completeness from the shared capture's counts — the
+// Judge an acquire pass's completeness from the shared capture's counts, the
 // single authority every strategy is measured by, kept separate from the
 // strategies so "how to scrape" and "is it valid" stay independent.
 import { decideOutcome } from "./outcome.mjs";

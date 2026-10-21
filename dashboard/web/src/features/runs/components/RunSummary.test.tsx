@@ -73,6 +73,6 @@ describe("RunSummary", () => {
 
   it("shows a dash when the duration is unknown", () => {
     render(<RunSummary summary={{ ...summary, durationMs: null }} />);
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
   });
 });

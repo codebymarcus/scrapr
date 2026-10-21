@@ -63,7 +63,7 @@ export function createLogger(prefix = "[scaper]", opts = {}) {
     verbose: (m) => emit(LEVELS.verbose, m, { code: "90" }),
     debug: (m) => emit(LEVELS.debug, m, { code: "90" }),
 
-    // Transient progress bar (TTY only; no-op when piped — a final line covers
+    // Transient progress bar (TTY only; no-op when piped; a final line covers
     // it). `human: true` formats the counts as MB (for byte-based progress).
     progressBar: (current, total, label = "", { human = false } = {}) => {
       if (!COLOR) return;

@@ -3,7 +3,7 @@
 //
 // Two deployment styles, both supported:
 //   - Local (`npm start`): `dotenv` is installed, so a dashboard/server/.env is
-//     loaded here. Real shell env always wins — dotenv never overrides a set var.
+//     loaded here. Real shell env always wins; dotenv never overrides a set var.
 //   - Docker: the image may not include `dotenv`, and env vars come from compose
 //     (`env_file:` / `environment:`). The dynamic import below fails softly in
 //     that case, so the server boots and uses the env compose already injected.
@@ -19,6 +19,6 @@ try {
   // quiet: suppress dotenv's startup banner so server output stays clean.
   config({ path: resolve(serverRoot, ".env"), quiet: true });
 } catch {
-  // `dotenv` not installed (e.g. a container image built without it) — rely on
+  // `dotenv` not installed (e.g. a container image built without it), rely on
   // the process environment compose/the shell already provides.
 }

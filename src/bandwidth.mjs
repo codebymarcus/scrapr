@@ -1,12 +1,12 @@
 // BandwidthMeter: totals the bytes a page actually transfers over the network,
 // so a run's data volume (and, with a rate, its proxy cost) can be surfaced.
 // Metered-proxy providers (Bright Data, Oxylabs, …) bill on ALL bytes through
-// the proxy — HTML, JS, CSS, every image kept or filtered, trackers — not just
+// the proxy (HTML, JS, CSS, every image kept or filtered, trackers), not just
 // the pages we save, so this counts every finished request via request.sizes().
 // Pages served from the local resume cache never touch the proxy, so a `skip`
 // predicate excludes them.
 
-// Human-readable size in DECIMAL units (KB=1e3, MB=1e6, GB=1e9) — matching how
+// Human-readable size in DECIMAL units (KB=1e3, MB=1e6, GB=1e9), matching how
 // proxy providers meter and bill, so the volume and the cost estimate agree.
 export function formatBytes(bytes) {
   if (bytes < 1e3) return `${bytes} B`;

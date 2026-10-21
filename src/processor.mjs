@@ -105,11 +105,11 @@ export class ImageProcessor {
     const fmt = this.config.format;
 
     // Warn when most pages lack a parseable page number: those fall back to
-    // capture order, which is usually — but not guaranteed to be — page order.
+    // capture order, which is usually, but not guaranteed to be, page order.
     const unnumbered = ordered.filter((e) => e.page == null).length;
     if (unnumbered > 0 && unnumbered >= ordered.length / 2) {
       this.logger.warn(
-        `${unnumbered}/${ordered.length} pages had no page number in their URL; ordering them by capture order — verify the output page order.`
+        `${unnumbered}/${ordered.length} pages had no page number in their URL; ordering them by capture order; verify the output page order.`
       );
     }
 
@@ -137,7 +137,7 @@ export class ImageProcessor {
           if (c) { buffer = c.buffer; ext = c.ext; }
         } catch (err) {
           // A non-empty buffer that still won't decode is a genuinely damaged
-          // source — keep the original bytes rather than failing the whole item.
+          // source: keep the original bytes rather than failing the whole item.
           this.logger.warn(`could not convert page ${idx} (${err?.message || err}); keeping original.`);
         }
       }

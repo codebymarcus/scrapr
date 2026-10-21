@@ -3,7 +3,7 @@
 // slow (extraDelay) then skip (isTripped) a domain that keeps failing hard.
 import { FailureCode, mapError } from "./strategies/strategy.mjs";
 
-// Codes that mean the domain/server is unhealthy — the only ones that count
+// Codes that mean the domain/server is unhealthy, the only ones that count
 // toward the breaker and the backoff. Content failures and UNKNOWN_ERROR do not,
 // so a flaky chapter can't blacklist a healthy domain.
 export const DOMAIN_HEALTH_CODES = new Set([

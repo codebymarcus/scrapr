@@ -26,7 +26,7 @@ export const failed = (code = FailureCode.UNKNOWN_ERROR, message = "", metadata 
 
 // Retryable = transient transport failures worth re-running the SAME strategy.
 // Structural failures (incomplete, navigation jump, blocked, empty) are NOT
-// retryable — repeating the same approach reproduces them — so the orchestrator
+// retryable; repeating the same approach reproduces them, so the orchestrator
 // falls back to the next strategy instead.
 const RETRYABLE = new Set([
   FailureCode.TIMEOUT,

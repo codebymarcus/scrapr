@@ -1,6 +1,6 @@
 // ImageCapture: passively collects the page images the browser downloads, with
 // filtering (host / min size / chapter-directory lock) and rate-limit detection.
-// It never drives the page — the ReaderDriver does — it only listens.
+// It never drives the page (the ReaderDriver does); it only listens.
 import { pageNumberFromUrl } from "./processor.mjs";
 import { filterImages } from "./recipes/image-filter.mjs";
 
@@ -10,7 +10,7 @@ export class ImageCapture {
   constructor(config, logger, cache = null) {
     this.config = config;
     this.logger = logger;
-    this.cache = cache; // optional PageCache — seed from it and write through to it
+    this.cache = cache; // optional PageCache: seed from it and write through to it
     this.images = new Map(); // url -> { buffer, contentType, seq }
     this._servedFromCache = new Set(); // URLs fulfilled from disk (skip in bandwidth accounting)
     this._seq = 0; // monotonic capture order, used to order unnumbered pages
@@ -130,8 +130,8 @@ export class ImageCapture {
 
       const body = await resp.body().catch(() => null);
       // An empty (0-byte) body is a failed/aborted fetch, not a real page. Never
-      // capture it — even for a numbered page (which otherwise bypasses minBytes)
-      // — because it would be counted as a page and then crash image conversion
+      // capture it, even for a numbered page (which otherwise bypasses minBytes),
+      // because it would be counted as a page and then crash image conversion
       // ("Input Buffer is empty"). Dropping it leaves the page missing so a later
       // pass or fallback strategy can re-fetch it.
       if (!body || body.length === 0) {
@@ -141,7 +141,7 @@ export class ImageCapture {
       this.logger.debug?.(`image response ${ct} ${kb(body.length)} ${u}`);
       // minBytes skips site chrome (icons, thumbnails, spinners). A URL that
       // matches the numbered-page pattern is a real page even when it's small,
-      // so it bypasses the size gate — otherwise a genuinely small page (e.g. a
+      // so it bypasses the size gate, otherwise a genuinely small page (e.g. a
       // sparse 19 KB page under a 20 KB threshold) is silently dropped, leaving
       // the download stuck one short forever.
       const page = pageNumberFromUrl(u);

@@ -30,7 +30,7 @@ const db = openDb(join(DATA_DIR, "scrapr.db"));
 migrate(db);
 const store = createStore(db);
 // Crash/restart recovery: no scrape survives a server exit, so any run still
-// marked "running" is orphaned — reconcile it to "failed" so it's not stuck.
+// marked "running" is orphaned: reconcile it to "failed" so it's not stuck.
 const interrupted = store.failInterruptedRuns();
 if (interrupted > 0) {
   console.log(`reconciled ${interrupted} interrupted run(s) to failed`);
