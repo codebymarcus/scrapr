@@ -105,6 +105,13 @@ function applyEvent(
                 saved: event.saved ?? item.saved,
                 total: event.total ?? item.total,
                 needs_review: event.needsReview ?? item.needs_review,
+                // Mirror the stored row so status/upload show live, not on refetch.
+                status: event.status ?? item.status,
+                reason: event.reason ?? item.reason,
+                uploaded_at: event.uploaded
+                  ? (event.uploadedAt ?? item.uploaded_at)
+                  : item.uploaded_at,
+                drive_link: event.driveLink ?? item.drive_link,
               }
             : item,
         ),
