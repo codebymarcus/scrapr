@@ -144,9 +144,17 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
     return done("connected");
   });
 
-  // Back-compat: the pre-multi-account UI has one "Disconnect" button.
-  app.post("/api/drive/disconnect", async () => {
-    for (const { id } of driveAuth.listAccounts()) driveAuth.disconnect(id);
+  // Back-compat: the pre-multi-account UI has one "Disconnect" button. It is
+  // only safe when exactly one account exists; disconnect deletes the account,
+  // so with several accounts it must never guess which to remove.
+  app.post("/api/drive/disconnect", async (req, reply) => {
+    const accounts = driveAuth.listAccounts();
+    if (accounts.length > 1) {
+      return reply.code(409).send({
+        error: "multiple accounts connected; use POST /api/drive/accounts/:id/disconnect",
+      });
+    }
+    if (accounts.length === 1) driveAuth.disconnect(accounts[0].id);
     return { disconnected: true };
   });
 

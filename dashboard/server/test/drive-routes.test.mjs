@@ -183,13 +183,37 @@ test("callback does not 500 when the exchange fails", async () => {
   await app.close();
 });
 
-test("legacy disconnect disconnects every account", async () => {
-  const da = fakeDriveAuth();
+test("legacy disconnect removes the only account", async () => {
+  const da = fakeDriveAuth({
+    accounts: [{ id: "x", label: "Work", email: "w@example.com", connected: true }],
+  });
   const app = buildApp({ driveAuth: da });
   const res = await app.inject({ method: "POST", url: "/api/drive/disconnect" });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { disconnected: true });
-  assert.deepEqual(da.calls.disconnect, ["x", "y"]);
+  assert.deepEqual(da.calls.disconnect, ["x"]);
+  await app.close();
+});
+
+test("legacy disconnect with several accounts deletes nothing and returns 409", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({ method: "POST", url: "/api/drive/disconnect" });
+  assert.equal(res.statusCode, 409);
+  assert.equal(
+    res.json().error,
+    "multiple accounts connected; use POST /api/drive/accounts/:id/disconnect",
+  );
+  assert.deepEqual(da.calls.disconnect, []);
+  await app.close();
+});
+
+test("legacy disconnect with no accounts is a no-op", async () => {
+  const da = fakeDriveAuth({ accounts: [] });
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({ method: "POST", url: "/api/drive/disconnect" });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(da.calls.disconnect, []);
   await app.close();
 });
 
