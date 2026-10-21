@@ -1,2 +1,2 @@
 export { SettingsPage } from "./components/SettingsPage";
-export { useDriveStatus } from "./hooks/use-drive-status";
+export { useDriveAccounts } from "./hooks/use-drive-accounts";

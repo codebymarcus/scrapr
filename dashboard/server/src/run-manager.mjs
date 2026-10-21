@@ -4,6 +4,7 @@ import { boundResolver } from "../../../src/recipes/recipe.mjs";
 import { createEventLogger } from "../../../src/events/event-logger.mjs";
 import { needsReview } from "../../../src/recipes/review.mjs";
 import { buildRunConfig } from "./build-run-config.mjs";
+import { resolveRunDriveAuth } from "./resolve-drive-auth.mjs";
 import { createRowLimiter } from "./row-limiter.mjs";
 
 export const defaultRunnerFactory = (config, logger, deps) => new BatchRunner(config, logger, deps);
@@ -88,10 +89,25 @@ export function createRunManager({
       store.setRunState(runId, "running", { startedAt: now() });
       safeEmit(runId, { type: "state", state: "running" });
 
-      // In-memory OAuth credentials (null when Drive is not connected -> engine falls back to files).
-      const driveAuth = driveAuthService?.loadAuthConfig?.() ?? undefined;
-      const config = buildRunConfig(recipe, { runOutDir: runOutDir(run), overrides: run.overrides, driveAuth });
       const logger = createEventLogger((ev) => safeEmit(runId, ev));
+
+      // Resolve the run's chosen Drive account to in-memory OAuth credentials.
+      // Null means the chosen account is unavailable: never a fallback to another
+      // account or to repo-root credential files.
+      const driveAuth = resolveRunDriveAuth(driveAuthService, run.overrides);
+      const config = buildRunConfig(recipe, { runOutDir: runOutDir(run), overrides: run.overrides, driveAuth });
+
+      // Never hand the engine `drive: true` with no credentials: that is exactly
+      // what would trigger the credentials.json/token.json file fallback (a silent
+      // upload to the wrong place) or fail the whole run. Turn Drive off for this
+      // engine run instead; the scrapes still complete, files are kept locally,
+      // and the rows are re-uploadable once the account is reconnected.
+      if (config.drive === true && !config.driveAuth) {
+        config.drive = false;
+        logger.warn(
+          "Drive upload skipped: the chosen account is unavailable; rows were not uploaded, reconnect the account and re-upload",
+        );
+      }
 
       // Must never throw: a throwing onItem would abort the whole batch.
       const onItem = (rec) => {

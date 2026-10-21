@@ -7,6 +7,8 @@ import { TextInput } from "@/components/atoms/TextInput";
 import { Field } from "@/components/molecules/Field";
 import { Modal } from "@/components/molecules/Modal";
 import { useProjects } from "@/features/projects";
+import { useDriveAccounts } from "@/features/settings";
+import { useDriveAccountStore } from "@/stores/use-drive-account-store";
 import { useDriveFolderStore } from "@/stores/use-drive-folder-store";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
@@ -68,6 +70,7 @@ export function NewRunDialog({
   const createRun = useCreateRun(client);
   const enqueue = useEnqueue(client);
   const importSheet = useImport(client);
+  const accountsQuery = useDriveAccounts(client);
 
   const [projectId, setProjectId] = useState(
     initialProjectId === undefined ? "" : String(initialProjectId),
@@ -82,6 +85,7 @@ export function NewRunDialog({
   const [folderEdit, setFolderEdit] = useState<string | null>(null);
   const [subfolderEdit, setSubfolderEdit] = useState<string | null>(null);
   const [formatEdit, setFormatEdit] = useState<RunFormat | null>(null);
+  const [accountEdit, setAccountEdit] = useState<string | null>(null);
   // Rows scraped at once; applies to every run type. Kept as text so the
   // field can be cleared while typing.
   const [concurrencyText, setConcurrencyText] = useState(
@@ -97,12 +101,42 @@ export function NewRunDialog({
   const folderByProject = useDriveFolderStore((state) => state.folderByProject);
   const rememberFolder = useDriveFolderStore((state) => state.setFolder);
 
+  // Last-used Drive account per project; only honored while still connected.
+  const accountByProject = useDriveAccountStore(
+    (state) => state.accountByProject,
+  );
+  const rememberAccount = useDriveAccountStore((state) => state.setAccount);
+
   const selectedProject = projectsQuery.data?.find(
     (project) => String(project.id) === projectId,
   );
   const recipe = selectedProject?.recipe;
   const showDrive = recipe?.contentType === "image";
-  const drive = driveEdit ?? recipe?.output?.drive ?? false;
+  const connectedAccounts = (accountsQuery.data?.accounts ?? []).filter(
+    (account) => account.connected,
+  );
+  // Uploading needs an account to upload to. Only block once the list has
+  // loaded and is empty, so a slow or failed lookup never disables the form.
+  const noDriveAccount =
+    accountsQuery.isSuccess && connectedAccounts.length === 0;
+  const drive = !noDriveAccount && (driveEdit ?? recipe?.output?.drive ?? false);
+  const rememberedAccount = selectedProject
+    ? accountByProject[selectedProject.id]
+    : undefined;
+  const isConnected = (id: string | undefined) =>
+    id !== undefined && connectedAccounts.some((account) => account.id === id);
+  const accountId =
+    (isConnected(accountEdit ?? undefined) ? accountEdit : null) ??
+    (isConnected(rememberedAccount) ? rememberedAccount : undefined) ??
+    (connectedAccounts.length === 1 ? connectedAccounts[0]?.id : undefined) ??
+    "";
+  const accountOptions = [
+    ...(accountId === "" ? [{ value: "", label: "Choose an account" }] : []),
+    ...connectedAccounts.map((account) => ({
+      value: account.id,
+      label: account.label || account.email || account.id,
+    })),
+  ];
   const rememberedFolder = selectedProject
     ? folderByProject[selectedProject.id]
     : undefined;
@@ -124,6 +158,7 @@ export function NewRunDialog({
     setFolderEdit(null);
     setSubfolderEdit(null);
     setFormatEdit(null);
+    setAccountEdit(null);
   }
 
   // The server applies only the keys that are present, so a blank folder must
@@ -138,6 +173,7 @@ export function NewRunDialog({
       overrides.format = format;
       if (folder.trim()) overrides.driveFolder = folder.trim();
       if (subfolder.trim()) overrides.driveSubfolder = subfolder.trim();
+      if (drive && accountId) overrides.driveAccountId = accountId;
     }
     return Object.keys(overrides).length > 0 ? overrides : undefined;
   }
@@ -149,6 +185,18 @@ export function NewRunDialog({
     setError(null);
     if (!createdRun && projectId === "") {
       setError("Choose a project for this run.");
+      return;
+    }
+    // Drive on with no account would silently upload nothing, so require one.
+    // A failed account lookup is not blocked (the legacy path still applies).
+    const needsAccount =
+      !createdRun &&
+      showDrive &&
+      drive &&
+      !accountId &&
+      !accountsQuery.isError;
+    if (needsAccount) {
+      setError("Choose a Drive account for this run.");
       return;
     }
     // The sheet wins, so pasted text is not validated when a file is chosen.
@@ -177,6 +225,9 @@ export function NewRunDialog({
       // Remember the folder this project just used (image runs only).
       if (showDrive && folder.trim()) {
         rememberFolder(Number(projectId), folder.trim());
+      }
+      if (showDrive && drive && accountId) {
+        rememberAccount(Number(projectId), accountId);
       }
     }
 
@@ -315,13 +366,29 @@ export function NewRunDialog({
               role="switch"
               className={styles.switch}
               checked={drive}
-              disabled={createdRun !== null}
+              disabled={createdRun !== null || noDriveAccount}
               onChange={(event) => setDriveEdit(event.target.checked)}
             />
             <Text as="span" variant="body">
               Upload to Drive
             </Text>
           </label>
+          {noDriveAccount ? (
+            <Text variant="small" tone="secondary" className={styles.hint}>
+              Connect a Drive account in Settings to upload.
+            </Text>
+          ) : null}
+          {drive ? (
+            <Field htmlFor={`${ids}-drive-account`} label="Drive account">
+              <Select
+                id={`${ids}-drive-account`}
+                value={accountId}
+                options={accountOptions}
+                onChange={setAccountEdit}
+                disabled={createdRun !== null}
+              />
+            </Field>
+          ) : null}
           <Field htmlFor={`${ids}-drive-folder`} label="Folder ID">
             <TextInput
               id={`${ids}-drive-folder`}

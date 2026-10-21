@@ -6,6 +6,7 @@ import { createApiClient } from "@/lib/http/api-client";
 import { runKeys } from "../hooks/runs-keys";
 import { makeProject } from "@/test/fixtures";
 import { makeRun } from "../test/fixtures";
+import { useDriveAccountStore } from "@/stores/use-drive-account-store";
 import { useDriveFolderStore } from "@/stores/use-drive-folder-store";
 import { NewRunDialog } from "./NewRunDialog";
 
@@ -593,5 +594,150 @@ describe("NewRunDialog: remembered Drive folder (zustand)", () => {
     await pickProject("Gallery"); // id 3, recipe default, not project 4's value
 
     expect(screen.getByLabelText("Folder ID")).not.toHaveValue("folder-four");
+  });
+});
+
+describe("NewRunDialog - Drive account selector", () => {
+  const work = {
+    id: "acc-work",
+    label: "Work",
+    email: "work@example.com",
+    connected: true,
+  };
+  const personal = {
+    id: "acc-personal",
+    label: null,
+    email: "me@example.com",
+    connected: true,
+  };
+  const lapsed = {
+    id: "acc-lapsed",
+    label: "Lapsed",
+    email: null,
+    connected: false,
+  };
+  const accountsHandler =
+    (accounts: unknown[]): Record<string, (call: Call) => Response> => ({
+      "GET /api/drive/accounts": () => json({ configured: true, accounts }),
+    });
+
+  beforeEach(() => {
+    useDriveAccountStore.setState({ accountByProject: {} });
+    useDriveFolderStore.setState({ folderByProject: {} });
+    try {
+      localStorage.clear();
+    } catch {
+      // jsdom without storage - ignore
+    }
+  });
+
+  it("lists only connected accounts and sends the chosen id", async () => {
+    const { writes, onClose } = setup(accountsHandler([work, personal, lapsed]));
+
+    await pickProject("Plain images");
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Upload to Drive" }),
+    );
+    await screen.findByRole("option", { name: "Work" });
+    expect(screen.getByRole("option", { name: "me@example.com" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Lapsed" })).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Drive account"),
+      "acc-personal",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+    expect(body.overrides).toMatchObject({
+      drive: true,
+      driveAccountId: "acc-personal",
+    });
+    expect(useDriveAccountStore.getState().accountByProject[4]).toBe(
+      "acc-personal",
+    );
+  });
+
+  it("prefills the project's remembered account", async () => {
+    useDriveAccountStore.setState({ accountByProject: { 3: "acc-personal" } });
+    setup(accountsHandler([work, personal]));
+
+    await pickProject("Gallery");
+
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText("Drive account")).toHaveValue("acc-personal"),
+    );
+  });
+
+  it("falls back to the only connected account", async () => {
+    const { writes, onClose } = setup(accountsHandler([work, lapsed]));
+
+    await pickProject("Gallery");
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText("Drive account")).toHaveValue("acc-work"),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+    expect(body.overrides).toMatchObject({ driveAccountId: "acc-work" });
+  });
+
+  it("ignores a remembered account that is no longer connected", async () => {
+    useDriveAccountStore.setState({ accountByProject: { 3: "acc-gone" } });
+    setup(accountsHandler([work, personal]));
+
+    await pickProject("Gallery");
+    await screen.findByRole("option", { name: "Work" });
+    expect(screen.getByLabelText("Drive account")).toHaveValue("");
+  });
+
+  it("requires an account when Drive is on and none is chosen", async () => {
+    const { writes, onClose } = setup(accountsHandler([work, personal]));
+
+    await pickProject("Gallery");
+    await screen.findByRole("option", { name: "Work" });
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose a Drive account for this run.",
+    );
+    expect(writes()).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useDriveAccountStore.getState().accountByProject).toEqual({});
+  });
+
+  it("omits the account when Drive upload is off", async () => {
+    const { writes, onClose } = setup(accountsHandler([work]));
+
+    await pickProject("Plain images");
+    expect(screen.queryByLabelText("Drive account")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+    expect(body.overrides).not.toHaveProperty("driveAccountId");
+  });
+
+  it("blocks Drive upload and points to Settings when no account is connected", async () => {
+    const { writes, onClose } = setup(accountsHandler([lapsed]));
+
+    // The recipe turns Drive on, but with no usable account it must not be sent.
+    await pickProject("Gallery");
+
+    expect(
+      await screen.findByText("Connect a Drive account in Settings to upload."),
+    ).toBeInTheDocument();
+    const toggle = screen.getByRole("switch", { name: "Upload to Drive" });
+    expect(toggle).toBeDisabled();
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByLabelText("Drive account")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = writes()[0]?.body as { overrides: Record<string, unknown> };
+    expect(body.overrides).toMatchObject({ drive: false });
+    expect(body.overrides).not.toHaveProperty("driveAccountId");
   });
 });

@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DriveUploader } from "../../../src/drive.mjs";
 import { buildRunConfig } from "./build-run-config.mjs";
+import { resolveRunDriveAuth } from "./resolve-drive-auth.mjs";
 
 // Typed error: `code` is one of "not_found" | "unavailable" | "no_output" so
 // routes can map it to an HTTP status.
@@ -49,7 +50,9 @@ export async function uploadItem(deps, runId, itemId) {
   if (recipe?.contentType === "text") {
     throw new UploadItemError("unavailable", "Text runs have no files to upload");
   }
-  const authConfig = driveAuth?.loadAuthConfig?.() ?? null;
+  // Resolve to the account the run chose (same resolution as scrape-time upload):
+  // a gone or invalid account is "unavailable", never a fallback to another account.
+  const authConfig = resolveRunDriveAuth(driveAuth, run.overrides);
   if (!authConfig) throw new UploadItemError("unavailable", "Google Drive is not connected");
 
   const outDir = runOutDir(run);

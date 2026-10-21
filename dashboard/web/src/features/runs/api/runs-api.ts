@@ -125,6 +125,7 @@ export type RunOverrides = {
   drive?: boolean;
   driveFolder?: string;
   driveSubfolder?: string;
+  driveAccountId?: string;
   format?: RunFormat;
   /** Per-run rows-in-flight override; absent means the server default. */
   concurrency?: number;

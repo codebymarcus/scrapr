@@ -306,3 +306,82 @@ test("setItemUpload persists output_size when given and leaves it alone when omi
   store.setItemUpload(items[0].id, { uploadedAt: "t2", driveLink: "l2" });
   assert.equal(store.getItem(items[0].id).output_size, 999);
 });
+
+test("drive accounts: list returns inserted accounts ordered by created_at then id", () => {
+  const { db, store } = setup();
+  assert.deepEqual(store.listDriveAccounts(), []);
+  store.upsertDriveAccount({ id: "b", sub: "s2", label: "Second", email: "b@x.com", token: "tok-b" });
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  const rows = store.listDriveAccounts();
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.id).sort(), ["a", "b"]);
+  assert.ok(rows.every((r) => r.created_at));
+  db.close();
+});
+
+test("drive accounts: get by id and by sub", () => {
+  const { db, store } = setup();
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  store.upsertDriveAccount({ id: "b", sub: "s2", label: "Second", email: "b@x.com", token: "tok-b" });
+  assert.equal(store.getDriveAccount("a").email, "a@x.com");
+  assert.equal(store.getDriveAccountBySub("s2").id, "b");
+  assert.equal(store.getDriveAccount("nope"), null);
+  assert.equal(store.getDriveAccountBySub("nope"), null);
+  db.close();
+});
+
+test("drive accounts: upsert with an existing id updates in place", () => {
+  const { db, store } = setup();
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  const before = store.getDriveAccount("a");
+  store.upsertDriveAccount({ id: "a", sub: "s9", label: "Renamed", email: "new@x.com", token: "tok-new" });
+  const rows = store.listDriveAccounts();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sub, "s9");
+  assert.equal(rows[0].label, "Renamed");
+  assert.equal(rows[0].email, "new@x.com");
+  assert.equal(rows[0].token, "tok-new");
+  assert.equal(rows[0].created_at, before.created_at);
+  db.close();
+});
+
+test("drive accounts: updateDriveAccountToken changes only token, sub and email", () => {
+  const { db, store } = setup();
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  store.updateDriveAccountToken("a", { token: "tok-2" });
+  let row = store.getDriveAccount("a");
+  assert.equal(row.token, "tok-2");
+  assert.equal(row.sub, "s1");
+  assert.equal(row.email, "a@x.com");
+  assert.equal(row.label, "First");
+  store.updateDriveAccountToken("a", { token: "tok-3", sub: "s2", email: "z@x.com" });
+  row = store.getDriveAccount("a");
+  assert.equal(row.token, "tok-3");
+  assert.equal(row.sub, "s2");
+  assert.equal(row.email, "z@x.com");
+  assert.equal(row.label, "First");
+  db.close();
+});
+
+test("drive accounts: renameDriveAccount changes only the label", () => {
+  const { db, store } = setup();
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  store.renameDriveAccount("a", "Work");
+  const row = store.getDriveAccount("a");
+  assert.equal(row.label, "Work");
+  assert.equal(row.token, "tok-a");
+  assert.equal(row.sub, "s1");
+  assert.equal(row.email, "a@x.com");
+  db.close();
+});
+
+test("drive accounts: deleteDriveAccount removes one and leaves the other", () => {
+  const { db, store } = setup();
+  store.upsertDriveAccount({ id: "a", sub: "s1", label: "First", email: "a@x.com", token: "tok-a" });
+  store.upsertDriveAccount({ id: "b", sub: "s2", label: "Second", email: "b@x.com", token: "tok-b" });
+  store.deleteDriveAccount("a");
+  assert.equal(store.getDriveAccount("a"), null);
+  assert.equal(store.listDriveAccounts().length, 1);
+  assert.equal(store.getDriveAccount("b").label, "Second");
+  db.close();
+});

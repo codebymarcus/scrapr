@@ -63,6 +63,19 @@ export const MIGRATIONS = [
       ALTER TABLE run_items ADD COLUMN bytes INTEGER;
     `,
   },
+  {
+    id: "006_drive_accounts",
+    sql: `
+      CREATE TABLE drive_accounts (
+        id TEXT PRIMARY KEY,
+        sub TEXT,
+        label TEXT,
+        email TEXT,
+        token TEXT NOT NULL,
+        created_at TEXT
+      );
+    `,
+  },
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

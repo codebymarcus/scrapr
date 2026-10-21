@@ -98,6 +98,19 @@ test("createRunSchema accepts valid overrides and rejects a wrong-typed one", ()
   assert.equal(createRunSchema.safeParse({ projectId: 1, overrides: { driveFolder: 5 } }).success, false);
 });
 
+test("createRunSchema accepts a driveAccountId override", () => {
+  const ok = createRunSchema.safeParse({
+    projectId: 1,
+    overrides: { drive: true, driveAccountId: "acc_1" },
+  });
+  assert.equal(ok.success, true);
+  assert.equal(ok.data.overrides.driveAccountId, "acc_1");
+  assert.equal(
+    createRunSchema.safeParse({ projectId: 1, overrides: { driveAccountId: 5 } }).success,
+    false,
+  );
+});
+
 test("createRunSchema accepts a valid format override and rejects an unknown one", () => {
   for (const format of ["cbz", "pdf", "both", "loose"]) {
     assert.equal(

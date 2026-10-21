@@ -89,6 +89,29 @@ export function createStore(db) {
       "INSERT INTO secrets (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
     ),
     deleteSecret: db.prepare("DELETE FROM secrets WHERE key = ?"),
+
+    listDriveAccounts: db.prepare(
+      "SELECT * FROM drive_accounts ORDER BY created_at, id",
+    ),
+    getDriveAccount: db.prepare("SELECT * FROM drive_accounts WHERE id = ?"),
+    getDriveAccountBySub: db.prepare(
+      "SELECT * FROM drive_accounts WHERE sub = ?",
+    ),
+    upsertDriveAccount: db.prepare(
+      `INSERT INTO drive_accounts (id, sub, label, email, token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET sub = excluded.sub, label = excluded.label,
+         email = excluded.email, token = excluded.token`,
+    ),
+    updateDriveAccountToken: db.prepare(
+      `UPDATE drive_accounts SET token = COALESCE(?, token),
+         sub = COALESCE(?, sub), email = COALESCE(?, email)
+       WHERE id = ?`,
+    ),
+    renameDriveAccount: db.prepare(
+      "UPDATE drive_accounts SET label = ? WHERE id = ?",
+    ),
+    deleteDriveAccount: db.prepare("DELETE FROM drive_accounts WHERE id = ?"),
   };
 
   // Each item is a URL string or a { url, name } row (name from a sheet's
@@ -216,6 +239,30 @@ export function createStore(db) {
     },
     deleteSecret(key) {
       q.deleteSecret.run(key);
+    },
+
+    // Drive accounts: `token` is an opaque (already-encrypted) string.
+    listDriveAccounts() {
+      return q.listDriveAccounts.all();
+    },
+    getDriveAccount(id) {
+      return q.getDriveAccount.get(id) ?? null;
+    },
+    getDriveAccountBySub(sub) {
+      return q.getDriveAccountBySub.get(sub) ?? null;
+    },
+    upsertDriveAccount({ id, sub = null, label = null, email = null, token }) {
+      q.upsertDriveAccount.run(id, sub, label, email, token, now());
+    },
+    // Sets only the provided (non-null) fields; label is never touched.
+    updateDriveAccountToken(id, { token, sub, email } = {}) {
+      q.updateDriveAccountToken.run(token ?? null, sub ?? null, email ?? null, id);
+    },
+    renameDriveAccount(id, label) {
+      q.renameDriveAccount.run(label, id);
+    },
+    deleteDriveAccount(id) {
+      q.deleteDriveAccount.run(id);
     },
   };
 }

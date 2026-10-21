@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  driveAccountsSchema,
   driveStatusSchema,
   itemSchema,
   previewImageSchema,
@@ -257,5 +258,38 @@ describe("runEventSchema", () => {
     expect(
       runEventSchema.safeParse({ type: "state", ts, state: "weird" }).success,
     ).toBe(false);
+  });
+});
+
+describe("driveAccountsSchema", () => {
+  it("parses the accounts list", () => {
+    const parsed = driveAccountsSchema.parse({
+      configured: true,
+      accounts: [
+        { id: "a1", label: "Work", email: "w@example.com", connected: true },
+      ],
+    });
+    expect(parsed.accounts[0]).toEqual({
+      id: "a1",
+      label: "Work",
+      email: "w@example.com",
+      connected: true,
+    });
+  });
+
+  it("accepts null label and email (migrated account)", () => {
+    const result = driveAccountsSchema.safeParse({
+      configured: false,
+      accounts: [{ id: "a1", label: null, email: null, connected: false }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an account without an id", () => {
+    const result = driveAccountsSchema.safeParse({
+      configured: true,
+      accounts: [{ label: null, email: null, connected: true }],
+    });
+    expect(result.success).toBe(false);
   });
 });

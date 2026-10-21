@@ -208,6 +208,22 @@ describe("createApiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ name: "renamed" });
   });
 
+  it("patch sends a JSON body with PATCH and resolves undefined", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ id: "1" }));
+    const result = await makeClient(fetchFn as unknown as typeof fetch).patch(
+      "/things/1",
+      { body: { label: "x" } },
+    );
+    expect(result).toBeUndefined();
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("http://api.test/things/1");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(String(init.body))).toEqual({ label: "x" });
+  });
+
   it("del issues a DELETE and resolves on success", async () => {
     const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
     await makeClient(fetchFn as unknown as typeof fetch).del("/things/1", {});

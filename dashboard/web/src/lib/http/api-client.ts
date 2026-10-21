@@ -20,6 +20,10 @@ export type ApiClient = {
     path: string,
     options: { body?: unknown; schema: ZodType<T>; signal?: AbortSignal },
   ): Promise<T>;
+  patch(
+    path: string,
+    options: { body?: unknown; signal?: AbortSignal },
+  ): Promise<void>;
   /** POST multipart/form-data (file uploads). The browser sets the boundary. */
   postForm<T>(
     path: string,
@@ -29,7 +33,7 @@ export type ApiClient = {
 };
 
 type RequestOptions = {
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   form?: FormData;
   schema?: ZodType<unknown>;
@@ -170,6 +174,13 @@ export function createApiClient(config: {
     return (await request(path, { method: "PUT", ...options })) as T;
   }
 
+  async function patch(
+    path: string,
+    options: { body?: unknown; signal?: AbortSignal },
+  ): Promise<void> {
+    await request(path, { method: "PATCH", ...options });
+  }
+
   async function postForm<T>(
     path: string,
     options: { form: FormData; schema: ZodType<T>; signal?: AbortSignal },
@@ -184,5 +195,5 @@ export function createApiClient(config: {
     await request(path, { method: "DELETE", signal: options?.signal });
   }
 
-  return { get, post, put, postForm, del };
+  return { get, post, put, patch, postForm, del };
 }
