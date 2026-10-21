@@ -238,6 +238,14 @@ test("an account whose blob won't decrypt shows connected:false without throwing
   assert.equal(auth.getToken("bad"), null);
 });
 
+test("fresh exchangeCode with no sub in the id_token throws and inserts no row", async () => {
+  const store = makeStore();
+  const factory = fakeFactory({ email: "no-sub@example.com" }); // payload lacks sub
+  const auth = createDriveAuth(base(store, factory));
+  await assert.rejects(() => auth.exchangeCode("c"), /account identity/);
+  assert.equal(store.listDriveAccounts().length, 0);
+});
+
 test("exchangeCode rejects a response with no tokens and stores nothing", async () => {
   const store = makeStore();
   const auth = createDriveAuth({

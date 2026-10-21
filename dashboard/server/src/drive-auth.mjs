@@ -84,7 +84,15 @@ export function createDriveAuth({
       return targetAccountId;
     }
 
-    const existing = sub != null ? store.getDriveAccountBySub(sub) : null;
+    // A fresh connect must have an identity to key the account on; without it,
+    // a null id_token sub would insert distinct orphan null-id rows (SQLite
+    // treats each NULL in a TEXT PRIMARY KEY as unique, so ON CONFLICT never
+    // fires). Fail the connect cleanly instead.
+    if (!sub) {
+      throw new Error("Google did not return an account identity");
+    }
+
+    const existing = store.getDriveAccountBySub(sub);
     if (existing) {
       store.updateDriveAccountToken(existing.id, { token, sub, email });
       return existing.id;
