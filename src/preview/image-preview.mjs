@@ -53,7 +53,7 @@ export function captureImageBytes(page, deps = {}) {
         if (map.size >= maxImages || total + buffer.length > totalMax) return;
         total += buffer.length;
         map.set(url, { buffer, contentType });
-      } catch { /* body unavailable (redirect/aborted) — skip */
+      } catch { /* body unavailable (redirect/aborted), skip */
       } finally { inflight--; }
     })();
     pending.add(task);

@@ -8,6 +8,7 @@ import { useProjects } from "@/features/projects";
 import type { NewRunFromProjectState } from "@/features/projects";
 import { dashboardClient } from "@/lib/api-client";
 import type { ApiClient } from "@/lib/http/api-client";
+import { MAX_CONCURRENT_RUNS } from "../constants";
 import type { SocketFactory } from "../hooks/use-run-events";
 import { useRunProgress } from "../hooks/use-run-progress";
 import { useRuns } from "../hooks/use-runs";
@@ -146,6 +147,8 @@ export function RunsPage({
       (run) => run.state === "done" && isSameLocalDay(run.finished_at, now),
     ).length;
 
+    const atRunCap = groups.running.length >= MAX_CONCURRENT_RUNS;
+
     const renderCards = (list: typeof runs) =>
       list.map((run) => (
         <RunCard
@@ -155,6 +158,7 @@ export function RunsPage({
           progress={progress.get(run.id)}
           actionError={actionErrors[run.id]}
           onActionError={handleActionError}
+          startDisabled={atRunCap}
           client={client}
           socketFactory={socketFactory}
         />
@@ -166,12 +170,12 @@ export function RunsPage({
           running={groups.running.length}
           queuedItems={pendingItems}
           doneToday={doneToday}
-          // Per-host failures are not exposed by the API yet: show "—".
+          // Per-host failures are not exposed by the API yet: show "-".
           failingHosts={null}
         />
         <RunGroup label="Running">{renderCards(groups.running)}</RunGroup>
         <RunGroup label="Queued">{renderCards(groups.queued)}</RunGroup>
-        <RunGroup label="Stopped — resumable">
+        <RunGroup label="Stopped (resumable)">
           {renderCards(groups.stopped)}
         </RunGroup>
         <RunGroup label="Recent">{renderCards(groups.recent)}</RunGroup>

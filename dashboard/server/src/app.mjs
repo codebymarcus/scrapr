@@ -9,7 +9,7 @@ import { runRoutes } from "./routes/runs.mjs";
 import { systemRoutes } from "./routes/system.mjs";
 import { wsRoutes } from "./routes/ws.mjs";
 
-// deps: { store, runManager, browserFactory, fetch, driveAuth, hub } — all
+// deps: { store, runManager, browserFactory, fetch, driveAuth, hub }, all
 // injectable so tests pass fakes. Unset deps default lazily to real
 // implementations in the routes/modules that need them.
 export function buildApp(deps = {}) {

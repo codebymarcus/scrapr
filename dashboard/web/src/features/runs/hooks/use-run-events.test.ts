@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent } from "@/lib/schemas";
 import { makeItem, makeRun, makeSummary } from "../test/fixtures";
+import { deriveItemStatus, isUploaded } from "../types";
 import type { CachedRunDetail } from "../types";
 import { runKeys } from "./runs-keys";
 import { MAX_LOG_LINES, useRunEvents } from "./use-run-events";
@@ -103,22 +104,64 @@ describe("useRunEvents", () => {
     expect(socketFactory).not.toHaveBeenCalled();
   });
 
-  it("applies a progress event to the cached run detail", () => {
+  it("folds progress into liveByItem keyed by itemId and clears on progress-end", () => {
     const { sockets, queryClient } = setup();
     queryClient.setQueryData(runKeys.detail(1), seededDetail);
     act(() => sockets[0].open());
 
     act(() =>
-      sockets[0].emit({ type: "progress", current: 3, total: 12, label: "img" }),
+      sockets[0].emit({
+        type: "progress",
+        itemId: 10,
+        current: 3,
+        total: 12,
+        label: "img",
+      }),
+    );
+    act(() =>
+      sockets[0].emit({ type: "progress", itemId: 11, current: 1, total: 4 }),
     );
 
-    const cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
-    expect(cached?.live).toEqual({ current: 3, total: 12, label: "img" });
+    let cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
+    expect(cached?.liveByItem?.[10]).toEqual({
+      current: 3,
+      total: 12,
+      label: "img",
+    });
+    expect(cached?.liveByItem?.[11]).toMatchObject({ current: 1, total: 4 });
 
+    act(() => sockets[0].emit({ type: "progress-end", itemId: 10 }));
+    cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
+    expect(cached?.liveByItem?.[10]).toBeUndefined();
+    expect(cached?.liveByItem?.[11]).toMatchObject({ current: 1, total: 4 });
+  });
+
+  it("ignores progress events that carry no itemId", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() => sockets[0].emit({ type: "progress", current: 3, total: 12 }));
     act(() => sockets[0].emit({ type: "progress-end" }));
-    expect(
-      queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1))?.live,
-    ).toBeUndefined();
+
+    expect(queryClient.getQueryData(runKeys.detail(1))).toEqual(seededDetail);
+  });
+
+  it("clears an item's live entry when its item completion event arrives", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() => {
+      sockets[0].emit({ type: "progress", itemId: 10, current: 5, total: 9 });
+      sockets[0].emit({ type: "progress", itemId: 11, current: 2, total: 9 });
+      sockets[0].emit({ type: "item", id: 10, saved: 9, total: 9, ok: true });
+    });
+
+    const cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
+    expect(cached?.liveByItem?.[10]).toBeUndefined();
+    expect(cached?.liveByItem?.[11]).toMatchObject({ current: 2, total: 9 });
+    expect(cached?.items.find((item) => item.id === 10)).toMatchObject({
+      saved: 9,
+    });
   });
 
   it("patches a cached item from an item event", () => {
@@ -135,6 +178,58 @@ describe("useRunEvents", () => {
       total: 4,
     });
     expect(cached?.items.find((item) => item.id === 11)?.saved).toBeNull();
+  });
+
+  it("flips a cached row to completed and uploaded from an item event", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() =>
+      sockets[0].emit({
+        type: "item",
+        id: 10,
+        saved: 9,
+        total: 9,
+        ok: true,
+        status: "done",
+        reason: "",
+        uploaded: true,
+        uploadedAt: "2026-10-21T10:00:00.000Z",
+        driveLink: "http://drive/10",
+      }),
+    );
+
+    const item = queryClient
+      .getQueryData<CachedRunDetail>(runKeys.detail(1))
+      ?.items.find((i) => i.id === 10);
+    expect(item).toBeDefined();
+    expect(deriveItemStatus(item!)).toBe("completed");
+    expect(isUploaded(item!)).toBe(true);
+    expect(item?.uploaded_at).toBe("2026-10-21T10:00:00.000Z");
+    expect(item?.drive_link).toBe("http://drive/10");
+  });
+
+  it("flips a cached row to failed and shows the reason from an item event", () => {
+    const { sockets, queryClient } = setup();
+    queryClient.setQueryData(runKeys.detail(1), seededDetail);
+
+    act(() =>
+      sockets[0].emit({
+        type: "item",
+        id: 11,
+        saved: 0,
+        ok: false,
+        status: "retry",
+        reason: "FAILED",
+      }),
+    );
+
+    const item = queryClient
+      .getQueryData<CachedRunDetail>(runKeys.detail(1))
+      ?.items.find((i) => i.id === 11);
+    expect(deriveItemStatus(item!)).toBe("failed");
+    expect(item?.reason).toBe("FAILED");
+    expect(isUploaded(item!)).toBe(false);
   });
 
   it("refetches the detail when an item event names an unknown item", () => {
@@ -326,13 +421,13 @@ describe("useRunEvents", () => {
     queryClient.setQueryData(runKeys.detail(1), seededDetail);
 
     act(() => {
-      sockets[0].emit({ type: "progress", current: 1, total: 2 });
+      sockets[0].emit({ type: "progress", itemId: 10, current: 1, total: 2 });
       sockets[0].emit({ type: "log", message: "kept" });
-      sockets[0].emit({ type: "progress-end" });
+      sockets[0].emit({ type: "progress-end", itemId: 10 });
     });
 
     const cached = queryClient.getQueryData<CachedRunDetail>(runKeys.detail(1));
-    expect(cached?.live).toBeUndefined();
+    expect(cached?.liveByItem?.[10]).toBeUndefined();
     expect(cached?.logs?.map((line) => line.message)).toEqual(["kept"]);
   });
 });

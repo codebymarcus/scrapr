@@ -1,6 +1,6 @@
 // chapter-aware strategy: addresses a continuous/looping reader's target chapter
 // directly by #page-N fragment (batcave.biz), instead of pressing ArrowRight
-// through adjacent chapters. Tested with fakes — no real browser.
+// through adjacent chapters. Tested with fakes, no real browser.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ChapterAwareStrategy, imageDir } from "../src/strategies/chapter-aware.mjs";

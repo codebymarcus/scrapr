@@ -1,4 +1,4 @@
-// Stage 1: the existing flow, unchanged in behaviour — open the reader past its
+// Stage 1: the existing flow, unchanged in behaviour: open the reader past its
 // JS gate, then press the advance key through the virtualized reader while the
 // shared ImageCapture collects images. Collaborators are injectable for testing.
 import { openReader as defaultOpenReader } from "../navigation.mjs";

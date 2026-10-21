@@ -1,4 +1,4 @@
-// ReaderDriver: drives a virtualized reader — detects the page count, then
+// ReaderDriver: drives a virtualized reader: detects the page count, then
 // presses the advance key through every page (politely, honouring rate-limit
 // backoff and stopping when no new images appear). Capture happens in parallel
 // via the injected ImageCapture; this class only decides when to advance.

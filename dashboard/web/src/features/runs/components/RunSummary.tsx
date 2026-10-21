@@ -41,7 +41,7 @@ export function RunSummary({ summary }: RunSummaryProps) {
   const stats: Array<[string, string]> = [
     [
       "Duration",
-      summary.durationMs === null ? "—" : formatDuration(summary.durationMs),
+      summary.durationMs === null ? "-" : formatDuration(summary.durationMs),
     ],
     [
       "Outcome",

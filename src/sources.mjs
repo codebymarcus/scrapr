@@ -1,5 +1,5 @@
 // Job sources: where the list of links comes from. Both implement the same
-// interface — `load()` → jobs, `hasStatus`, `setStatus(job, value)`, `setReason(job, text)` — so the
+// interface (`load()` → jobs, `hasStatus`, `setStatus(job, value)`, `setReason(job, text)`) so the
 // runner treats a single URL and a spreadsheet identically.
 import xlsx from "xlsx";
 import { existsSync, writeFileSync } from "node:fs";
@@ -73,7 +73,7 @@ export class SheetSource {
     this.hasStatus = true;
 
     // Reuse only an existing explicit `reason` column; otherwise append one. Never adopt
-    // `error`/`note` — those are human-maintained and would be overwritten.
+    // `error`/`note`; those are human-maintained and would be overwritten.
     let reasonCol = find(["reason"]);
     if (reasonCol === -1) {
       reasonCol = range.e.c + 1; // append a reason column and grow the range

@@ -1,5 +1,5 @@
 // Packagers: each turns the processed page buffers into an output form. They
-// share one interface — `write(outputs, targets)` — so new formats can be added
+// share one interface, `write(outputs, targets)`, so new formats can be added
 // without touching the scraper (Open/Closed). `buildPackagers` selects which to
 // run from config.
 import path from "node:path";
@@ -21,7 +21,7 @@ export class LoosePackager {
   }
 }
 
-// A .cbz (ZIP of images, stored — images are already compressed).
+// A .cbz (ZIP of images, stored; images are already compressed).
 export class CbzPackager {
   constructor(logger) { this.logger = logger; }
   async write(outputs, targets, metadata) {
@@ -45,7 +45,7 @@ export class CbzPackager {
 }
 
 // A .pdf, one page per image (page sized to the image), no encryption. Only
-// baseline JPEG/PNG can be embedded — the processor produces those.
+// baseline JPEG/PNG can be embedded; the processor produces those.
 export class PdfPackager {
   constructor(logger) { this.logger = logger; }
   async write(outputs, targets, metadata) {

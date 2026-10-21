@@ -1,4 +1,4 @@
-// Navigation: resilient page loading — exponential backoff on errors and
+// Navigation: resilient page loading: exponential backoff on errors and
 // 429/503, plus clearing a JS interstitial that bounces to a /_c?… gate.
 import { sleep, withJitter } from "./time.mjs";
 

@@ -1,5 +1,5 @@
 // Generic default profile (catch-all): today's behaviour for any site without a
-// dedicated profile — a single keyboard-advance pass.
+// dedicated profile: a single keyboard-advance pass.
 import { ContentType } from "./profile.mjs";
 
 export default {

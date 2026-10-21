@@ -1,4 +1,4 @@
-// GET /api/ws?runId=<id> — streams hub events for a run as JSON text frames.
+// GET /api/ws?runId=<id>: streams hub events for a run as JSON text frames.
 // @fastify/websocket v11 handler signature: (socket, req) with socket a `ws`
 // WebSocket.
 export async function wsRoutes(app, { hub }) {

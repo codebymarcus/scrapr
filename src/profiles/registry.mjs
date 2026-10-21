@@ -16,7 +16,7 @@ export function resolveProfile(url, profiles = PROFILES) {
 
 // Build the mechanism pipeline for a job. A non-empty config.strategies overrides
 // the profile's pipeline globally (back-compat); its entries use `name`, a
-// profile's entries use `mechanism` — both are accepted.
+// profile's entries use `mechanism`; both are accepted.
 export function resolvePipeline(profile, config, logger, mechanisms = MECHANISMS) {
   const override = Array.isArray(config?.strategies) && config.strategies.length ? config.strategies : null;
   const specs = override || profile.pipeline || [];
@@ -29,7 +29,7 @@ export function resolvePipeline(profile, config, logger, mechanisms = MECHANISMS
     }
     if (spec.enabled === false) continue;
     const make = mechanisms[key];
-    if (!make) { logger?.warn?.(`unknown mechanism "${key}" — skipping`); continue; }
+    if (!make) { logger?.warn?.(`unknown mechanism "${key}", skipping`); continue; }
     const strategy = make(spec.params || {});
     const maxAttempts = Number.isInteger(spec.maxAttempts) ? spec.maxAttempts : (strategy.defaultMaxAttempts ?? 1);
     if (maxAttempts < 1) continue; // 0 disables

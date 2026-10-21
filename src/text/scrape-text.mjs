@@ -1,6 +1,6 @@
 // src/text/scrape-text.mjs
 // The text content path: resolve the extraction mode, acquire the page (HTTP-first,
-// escalating to the browser), run the extractor, and write output — a .md for
+// escalating to the browser), run the extractor, and write output: a .md for
 // article mode, or a record appended to the run's aggregate CSV/JSON for
 // pattern/selector. Returns the batch loop's result shape (with `via`).
 import { mkdir, writeFile } from "node:fs/promises";

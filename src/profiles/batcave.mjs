@@ -1,6 +1,6 @@
 // batcave.biz "event" reader: a continuous/looping multi-chapter reader whose
 // pages are addressed by #page-N fragment. Uses only the chapter-aware
-// (hash-addressing) mechanism — keyboard-advance always fails here.
+// (hash-addressing) mechanism; keyboard-advance always fails here.
 import { hostMatch, ContentType } from "./profile.mjs";
 
 export default {

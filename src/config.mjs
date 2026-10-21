@@ -48,6 +48,8 @@ export const DEFAULTS = {
   // { name, maxAttempts?, enabled? }); null = use the matched profile.
   strategies: null,
   navTimeout: 45000, itemDelay: 3000, headed: false,
+  // rows scraped in parallel (worker-pool size, 1-5); 1 = sequential, unchanged behavior.
+  rowConcurrency: 1,
   // circuit breaker: consecutive domain-health failures on one host before it is
   // skipped for the rest of the run (rows stay retryable); grows the delay before
   // then. 0 disables the breaker and the adaptive backoff.
@@ -66,7 +68,7 @@ export const DEFAULTS = {
   drive: false, driveFolder: null, driveSubfolder: null, driveOnly: null,
   driveCredentials: "credentials.json", driveToken: "token.json",
   // delete a link's local files after it fully succeeds (uploaded), and delete
-  // partial files when a download is incomplete — to free disk space.
+  // partial files when a download is incomplete, to free disk space.
   cleanup: false,
   // preview the batch (jobs, resolved targets, skip reasons) without launching
   // the browser or contacting Drive.
@@ -143,7 +145,7 @@ export function buildConfig(args, fileConfig = {}) {
     if (k in fileConfig && fileConfig[k] !== undefined && fileConfig[k] !== null) cfg[k] = fileConfig[k];
   }
 
-  // Layer 3: CLI args — applied only when actually provided, so they override
+  // Layer 3: CLI args, applied only when actually provided, so they override
   // the file. Boolean flags only ever turn a setting on (never off by absence).
   const has = (k) => k in args;
 

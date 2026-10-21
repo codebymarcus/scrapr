@@ -20,6 +20,7 @@ import { createDriveAuth } from "./drive-auth.mjs";
 import { createHub } from "./hub.mjs";
 import { defaultRunOutDir } from "./routes/runs.mjs";
 import { createRunManager } from "./run-manager.mjs";
+import { stopActiveRuns } from "./stop-active-runs.mjs";
 
 // How long shutdown waits for a stopping run to settle before closing the db.
 const SHUTDOWN_IDLE_TIMEOUT_MS = 10_000;
@@ -29,7 +30,7 @@ const db = openDb(join(DATA_DIR, "scrapr.db"));
 migrate(db);
 const store = createStore(db);
 // Crash/restart recovery: no scrape survives a server exit, so any run still
-// marked "running" is orphaned — reconcile it to "failed" so it's not stuck.
+// marked "running" is orphaned: reconcile it to "failed" so it's not stuck.
 const interrupted = store.failInterruptedRuns();
 if (interrupted > 0) {
   console.log(`reconciled ${interrupted} interrupted run(s) to failed`);
@@ -98,20 +99,8 @@ async function shutdown(signal) {
   // First thing: no queued run may be auto-started while we wind down.
   await step(() => runManager.shutdown());
   await step(() => app.close());
-  // Stop an in-flight scrape so it can record its state before the db closes.
-  await step(async () => {
-    const activeId = runManager.activeRunId();
-    if (activeId === null) return;
-    runManager.stop(activeId);
-    let timer;
-    await Promise.race([
-      runManager.idle(),
-      new Promise((resolve) => {
-        timer = setTimeout(resolve, SHUTDOWN_IDLE_TIMEOUT_MS);
-      }),
-    ]);
-    clearTimeout(timer);
-  });
+  // Stop every in-flight scrape so each can record its state before the db closes.
+  await step(() => stopActiveRuns(runManager, SHUTDOWN_IDLE_TIMEOUT_MS));
   await step(() => closeBrowser());
   await step(() => db.close());
   process.exit(code);

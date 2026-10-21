@@ -51,7 +51,7 @@ test("ImageCapture: drops images below minBytes", async () => {
 test("ImageCapture: drops an empty (0-byte) body even for a numbered page", async () => {
   const cap = new ImageCapture(baseConfig, noopLogger);
   // A numbered page normally bypasses minBytes, but a 0-byte body is a failed
-  // fetch, not a real page — it must not be captured (it would crash conversion).
+  // fetch, not a real page, so it must not be captured (it would crash conversion).
   await cap._onResponse(fakeImageResponse("https://cdn.x/39131/2-abc.jpg", { bytes: 0 }));
   assert.equal(cap.size, 0);
 });

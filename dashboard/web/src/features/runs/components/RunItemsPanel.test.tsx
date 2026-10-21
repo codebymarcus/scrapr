@@ -81,6 +81,7 @@ function renderPanel(
     contentType?: RunContentType;
     isRunning?: boolean;
     conflict?: string;
+    liveByItem?: Record<number, { current: number; total: number }>;
   } = {},
 ) {
   const { client, calls } = makeClient(props.conflict);
@@ -95,6 +96,7 @@ function renderPanel(
         contentType={props.contentType ?? "image"}
         isRunning={props.isRunning ?? false}
         client={client}
+        liveByItem={props.liveByItem}
       />
     </QueryClientProvider>,
   );
@@ -124,6 +126,21 @@ describe("RunItemsPanel", () => {
     expect(
       within(rowFor("bravo")).getByText("Not uploaded"),
     ).toBeInTheDocument();
+  });
+
+  it("shows a per-row page progress bar for a scraping row", () => {
+    renderPanel({
+      items: [item(7, { name: "golf" }), item(8, { name: "hotel" })],
+      liveByItem: { 7: { current: 13, total: 21 } },
+    });
+
+    const row = rowFor("golf");
+    expect(within(row).getByText("13 / 21 pages")).toBeInTheDocument();
+    const bar = within(row).getByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "13");
+    expect(bar).toHaveAttribute("aria-valuemax", "21");
+    expect(within(rowFor("hotel")).queryByRole("progressbar")).toBeNull();
+    expect(screen.getAllByText(/pages$/)).toHaveLength(1);
   });
 
   it("hides the upload badge and actions for text runs", () => {

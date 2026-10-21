@@ -33,10 +33,17 @@ function applyOverrides(config, overrides) {
 
 // Mirror the CLI's finalize() packaging normalization (src/config.mjs): PDF
 // embeds baseline JPEG/PNG, so images must be converted away from "keep" before
-// the pdf packager wraps them — otherwise the PDF comes out empty/broken.
+// the pdf packager wraps them, otherwise the PDF comes out empty/broken.
 function normalizePackaging(config) {
   config.format = String(config.format).toLowerCase();
   if (config.pdf && config.format !== "png") config.format = "jpg";
+}
+
+// Row concurrency is clamped to [1,5]; anything non-numeric falls back to sequential (1).
+// The API schema already rejects out-of-range values, but a raw caller could bypass it.
+function clampConcurrency(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return 1;
+  return Math.min(5, Math.max(1, Math.round(n)));
 }
 
 // Translate a recipe into the engine's flat config. `url`/`listFile` stay null: the
@@ -51,6 +58,10 @@ export function buildRunConfig(recipe, { runOutDir, overrides, driveAuth }) {
   };
   // In-memory OAuth credentials make the engine skip the credential/token files.
   if (driveAuth) config.driveAuth = driveAuth;
+
+  // The one per-run override that applies to EVERY run type (text included); set before the
+  // branches below so the text early-return still carries it.
+  config.rowConcurrency = clampConcurrency(overrides?.concurrency);
 
   // Built-in recipe: a standard image config. The engine's own URL-matched profile drives
   // extraction, so no imageRules and no text wiring are set.
