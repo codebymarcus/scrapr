@@ -164,6 +164,18 @@ export function NewRunDialog({
       setError("Choose a project for this run.");
       return;
     }
+    // Drive on with no account would silently upload nothing, so require one.
+    // A failed account lookup is not blocked (the legacy path still applies).
+    const needsAccount =
+      !createdRun &&
+      showDrive &&
+      drive &&
+      !accountId &&
+      !accountsQuery.isError;
+    if (needsAccount) {
+      setError("Choose a Drive account for this run.");
+      return;
+    }
     // The sheet wins, so pasted text is not validated when a file is chosen.
     const { urls, invalid } = file
       ? { urls: [], invalid: [] }

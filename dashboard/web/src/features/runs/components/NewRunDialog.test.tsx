@@ -609,16 +609,26 @@ describe("NewRunDialog - Drive account selector", () => {
 
   it("ignores a remembered account that is no longer connected", async () => {
     useDriveAccountStore.setState({ accountByProject: { 3: "acc-gone" } });
-    const { writes, onClose } = setup(accountsHandler([work, personal]));
+    setup(accountsHandler([work, personal]));
 
     await pickProject("Gallery");
     await screen.findByRole("option", { name: "Work" });
     expect(screen.getByLabelText("Drive account")).toHaveValue("");
+  });
+
+  it("requires an account when Drive is on and none is chosen", async () => {
+    const { writes, onClose } = setup(accountsHandler([work, personal]));
+
+    await pickProject("Gallery");
+    await screen.findByRole("option", { name: "Work" });
     await userEvent.click(screen.getByRole("button", { name: "Create run" }));
 
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
-    const body = writes()[0]?.body as { overrides: Record<string, unknown> };
-    expect(body.overrides).not.toHaveProperty("driveAccountId");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose a Drive account for this run.",
+    );
+    expect(writes()).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useDriveAccountStore.getState().accountByProject).toEqual({});
   });
 
   it("omits the account when Drive upload is off", async () => {
