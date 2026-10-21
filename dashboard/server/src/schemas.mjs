@@ -95,6 +95,8 @@ export const createRunSchema = z.object({
       driveSubfolder: z.string().optional(),
       // Output packaging: picks the engine's cbz/pdf/keepLoose flags.
       format: z.enum(["cbz", "pdf", "both", "loose"]).optional(),
+      // Rows scraped in parallel for this run (worker-pool size).
+      concurrency: z.number().int().min(1).max(5).optional(),
     })
     .optional(),
 });

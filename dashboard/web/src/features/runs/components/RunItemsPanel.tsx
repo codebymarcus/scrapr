@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/atoms/Button";
+import { SegmentedMeter } from "@/components/atoms/SegmentedMeter";
 import { Text } from "@/components/atoms/Text";
 import type { ApiClient } from "@/lib/http/api-client";
 import type { RunItem } from "@/lib/schemas";
@@ -24,6 +25,8 @@ type RunItemsPanelProps = {
   items: RunItem[];
   contentType: RunContentType;
   isRunning: boolean;
+  /** Live page counter per in-flight item id (concurrent rows). */
+  liveByItem?: Record<number, { current: number; total: number }>;
   /** Injectable for tests; production uses the shared dashboard client. */
   client?: ApiClient;
 };
@@ -37,6 +40,7 @@ export function RunItemsPanel({
   items,
   contentType,
   isRunning,
+  liveByItem,
   client,
 }: RunItemsPanelProps) {
   const actions = useItemActions(client);
@@ -114,6 +118,7 @@ export function RunItemsPanel({
             <tr>
               <th scope="col">Item</th>
               <th scope="col">Status</th>
+              <th scope="col">Progress</th>
               {isImage ? <th scope="col">Upload</th> : null}
               <th scope="col">Actions</th>
             </tr>
@@ -122,6 +127,7 @@ export function RunItemsPanel({
             {visible.map((item) => {
               const status = deriveItemStatus(item);
               const label = itemLabel(item);
+              const live = liveByItem?.[item.id];
               const itemInput = { runId, itemId: item.id };
               return (
                 <tr key={item.id}>
@@ -138,6 +144,21 @@ export function RunItemsPanel({
                     <span className={`${styles.badge} ${styles[status]}`}>
                       {STATUS_LABEL[status]}
                     </span>
+                  </td>
+                  <td>
+                    {live ? (
+                      <div className={styles.live}>
+                        <SegmentedMeter
+                          value={live.current}
+                          total={live.total}
+                          segments={12}
+                          label={`${label} progress`}
+                        />
+                        <span className={styles.liveCounts}>
+                          {live.current} / {live.total} pages
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                   {isImage ? (
                     <td>

@@ -25,6 +25,8 @@ import { RunSummary } from "./RunSummary";
 // Poll the run detail at this cadence while the live socket is down.
 const POLL_INTERVAL_MS = 3000;
 
+const CAP_TITLE = "Two runs are already running";
+
 type RunCardProps = {
   run: Run;
   /** Known from the run's project; the tag is hidden when unknown. */
@@ -38,6 +40,8 @@ type RunCardProps = {
   actionError?: string | null;
   /** Reports an action failure (message) or clears it (null). */
   onActionError?: (runId: number, message: string | null) => void;
+  /** Disables Start/Resume, e.g. when the run cap is reached. */
+  startDisabled?: boolean;
   /** Injectable for tests; production uses the shared dashboard client. */
   client?: ApiClient;
   /** Injectable for tests; production opens a real WebSocket. */
@@ -50,6 +54,7 @@ export function RunCard({
   progress,
   actionError,
   onActionError,
+  startDisabled = false,
   client = dashboardClient,
   socketFactory,
 }: RunCardProps) {
@@ -136,7 +141,8 @@ export function RunCard({
         {run.state === "queued" ? (
           <Button
             variant="primary"
-            disabled={busy}
+            disabled={busy || startDisabled}
+            title={startDisabled ? CAP_TITLE : undefined}
             aria-label={`Start ${name}`}
             onClick={() => fire(start)}
           >
@@ -147,7 +153,8 @@ export function RunCard({
         {run.state === "stopped" ? (
           <Button
             variant="primary"
-            disabled={busy}
+            disabled={busy || startDisabled}
+            title={startDisabled ? CAP_TITLE : undefined}
             aria-label={`Resume ${name}`}
             onClick={() => fire(resume)}
           >
@@ -229,6 +236,7 @@ export function RunCard({
             items={detail.data?.items ?? []}
             contentType={contentType ?? "text"}
             isRunning={isRunning}
+            liveByItem={detail.data?.liveByItem}
             client={client}
           />
         </div>

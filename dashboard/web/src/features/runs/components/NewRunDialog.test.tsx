@@ -470,6 +470,83 @@ describe("NewRunDialog", () => {
   });
 });
 
+describe("NewRunDialog — Concurrent rows", () => {
+  beforeEach(() => {
+    // Earlier tests remember a Drive folder per project; start clean.
+    useDriveFolderStore.setState({ folderByProject: {} });
+  });
+
+  it("shows the field with a default of 1 for every project type", async () => {
+    setup();
+
+    await pickProject("Alpha");
+    expect(screen.getByLabelText("Concurrent rows")).toHaveValue(1);
+
+    await pickProject("Plain images");
+    expect(screen.getByLabelText("Concurrent rows")).toHaveValue(1);
+  });
+
+  it("sends the chosen concurrency for an image project alongside the drive keys", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Plain images");
+    const field = screen.getByLabelText("Concurrent rows");
+    await userEvent.clear(field);
+    await userEvent.type(field, "3");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes()[0]?.body).toEqual({
+      projectId: 4,
+      overrides: { concurrency: 3, drive: false, format: "loose" },
+    });
+  });
+
+  it("still sends concurrency for a text project, with no drive keys", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Alpha");
+    const field = screen.getByLabelText("Concurrent rows");
+    await userEvent.clear(field);
+    await userEvent.type(field, "3");
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes()[0]?.body).toEqual({
+      projectId: 1,
+      overrides: { concurrency: 3 },
+    });
+  });
+
+  it("clamps out-of-range input to the allowed 1-5 range", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Alpha");
+    const field = screen.getByLabelText("Concurrent rows");
+    await userEvent.clear(field);
+    await userEvent.type(field, "9");
+    expect(field).toHaveValue(5);
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes()[0]?.body).toEqual({
+      projectId: 1,
+      overrides: { concurrency: 5 },
+    });
+  });
+
+  it("falls back to 1 (no override) when the field is left blank", async () => {
+    const { writes, onClose } = setup();
+
+    await pickProject("Alpha");
+    await userEvent.clear(screen.getByLabelText("Concurrent rows"));
+    await userEvent.click(screen.getByRole("button", { name: "Create run" }));
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes()[0]?.body).toEqual({ projectId: 1 });
+  });
+});
+
 describe("NewRunDialog — remembered Drive folder (zustand)", () => {
   beforeEach(() => {
     useDriveFolderStore.setState({ folderByProject: {} });

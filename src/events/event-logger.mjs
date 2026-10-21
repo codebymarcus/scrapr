@@ -56,5 +56,19 @@ export function createEventLogger(emit, base = null) {
     await base?.close?.();
   };
 
+  // A logger bound to one row: identical surface, but page-progress events carry the
+  // row's itemId so concurrent rows can be told apart. Reuses this closure's send/tee.
+  log.forItem = (itemId) => ({
+    ...log,
+    progressBar: (current, total, label = "", ...rest) => {
+      send({ type: "progress", itemId, current, total, label, ts: Date.now() });
+      tee("progressBar", [current, total, label, ...rest]);
+    },
+    endProgress: () => {
+      send({ type: "progress-end", itemId, ts: Date.now() });
+      tee("endProgress", []);
+    },
+  });
+
   return log;
 }
