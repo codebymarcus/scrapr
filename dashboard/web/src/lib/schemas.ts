@@ -187,6 +187,20 @@ export const driveStatusSchema = z.object({
   hint: z.string().optional(),
 });
 
+export const driveAccountSchema = z.object({
+  id: z.string(),
+  /** Null for a migrated account that was never given a label. */
+  label: z.string().nullable(),
+  email: z.string().nullable(),
+  connected: z.boolean(),
+});
+
+export const driveAccountsSchema = z.object({
+  /** OAuth client id/secret are present in the server env. */
+  configured: z.boolean(),
+  accounts: z.array(driveAccountSchema),
+});
+
 // WebSocket run events. Engine log/progress events carry `ts` (epoch ms);
 // the run manager's `item` / `state` events do not.
 export const runEventSchema = z.discriminatedUnion("type", [
@@ -238,4 +252,6 @@ export type TextPreview = z.infer<typeof previewTextSchema>;
 export type ImagePreview = z.infer<typeof previewImageSchema>;
 export type DriveConnect = z.infer<typeof driveConnectSchema>;
 export type DriveStatus = z.infer<typeof driveStatusSchema>;
+export type DriveAccount = z.infer<typeof driveAccountSchema>;
+export type DriveAccounts = z.infer<typeof driveAccountsSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;
