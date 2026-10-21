@@ -3,29 +3,38 @@ import assert from "node:assert/strict";
 import { buildApp } from "../src/app.mjs";
 import { createDriveAuth } from "../src/drive-auth.mjs";
 
-function fakeDriveAuth({ configured = true, exchange } = {}) {
-  const calls = { exchange: [], disconnect: 0 };
+function fakeDriveAuth({ configured = true, exchange, accounts } = {}) {
+  const calls = { exchange: [], exchangeOpts: [], disconnect: [], rename: [] };
+  const list = accounts ?? [
+    { id: "x", label: "Work", email: "w@example.com", connected: true },
+    { id: "y", label: "Home", email: "h@example.com", connected: false },
+  ];
   return {
     calls,
+    listAccounts: () => list,
+    renameAccount: (id, label) => {
+      calls.rename.push([id, label]);
+    },
     isConfigured: () => configured,
     status: () =>
       configured
         ? { configured: true, connected: false, reason: "ok" }
         : { configured: false, connected: false, reason: "not-configured" },
     authUrl: (state) => `https://accounts.example/auth?state=${encodeURIComponent(state)}`,
-    exchangeCode: async (code) => {
+    exchangeCode: async (code, opts) => {
       calls.exchange.push(code);
+      calls.exchangeOpts.push(opts);
       if (exchange) await exchange(code);
     },
-    disconnect: () => {
-      calls.disconnect += 1;
+    disconnect: (id) => {
+      calls.disconnect.push(id);
     },
   };
 }
 
 // Runs GET /api/drive/connect and returns the state + cookie the browser would hold.
-async function connect(app) {
-  const res = await app.inject({ method: "GET", url: "/api/drive/connect" });
+async function connect(app, query = "") {
+  const res = await app.inject({ method: "GET", url: `/api/drive/connect${query}` });
   assert.equal(res.statusCode, 200);
   const state = new URL(res.json().url).searchParams.get("state");
   const cookie = String(res.headers["set-cookie"]).split(";")[0];
@@ -174,13 +183,138 @@ test("callback does not 500 when the exchange fails", async () => {
   await app.close();
 });
 
-test("disconnect calls driveAuth.disconnect", async () => {
+test("legacy disconnect disconnects every account", async () => {
   const da = fakeDriveAuth();
   const app = buildApp({ driveAuth: da });
   const res = await app.inject({ method: "POST", url: "/api/drive/disconnect" });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { disconnected: true });
-  assert.equal(da.calls.disconnect, 1);
+  assert.deepEqual(da.calls.disconnect, ["x", "y"]);
+  await app.close();
+});
+
+test("GET /accounts returns configured and the account list", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({ method: "GET", url: "/api/drive/accounts" });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), {
+    configured: true,
+    accounts: da.listAccounts(),
+  });
+  await app.close();
+});
+
+test("callback without a bound account passes an undefined target", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const { state, cookie } = await connect(app);
+  await app.inject({
+    method: "GET",
+    url: `/api/drive/callback?code=abc&state=${encodeURIComponent(state)}`,
+    headers: { cookie },
+  });
+  assert.equal(da.calls.exchangeOpts[0].targetAccountId, undefined);
+  await app.close();
+});
+
+test("connect?accountId=x binds x to the state for the callback", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const { state, cookie } = await connect(app, "?accountId=x");
+  const res = await app.inject({
+    method: "GET",
+    // A target smuggled into the callback query must be ignored.
+    url: `/api/drive/callback?code=abc&targetAccountId=y&accountId=y&state=${encodeURIComponent(state)}`,
+    headers: { cookie },
+  });
+  assert.match(res.headers.location, /^\/settings\?drive=connected/);
+  assert.deepEqual(da.calls.exchange, ["abc"]);
+  assert.deepEqual(da.calls.exchangeOpts, [{ targetAccountId: "x" }]);
+  await app.close();
+});
+
+test("connect?accountId=missing returns 404 and issues no state", async () => {
+  const app = buildApp({ driveAuth: fakeDriveAuth() });
+  const res = await app.inject({ method: "GET", url: "/api/drive/connect?accountId=missing" });
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.headers["set-cookie"], undefined);
+  await app.close();
+});
+
+test("a bound-account state still fails CSRF without the cookie", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const { state } = await connect(app, "?accountId=x");
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/drive/callback?code=abc&state=${encodeURIComponent(state)}`,
+  });
+  assert.match(res.headers.location, /^\/settings\?drive=error/);
+  assert.deepEqual(da.calls.exchange, []);
+  await app.close();
+});
+
+test("POST /accounts/:id/disconnect calls disconnect(id)", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({ method: "POST", url: "/api/drive/accounts/x/disconnect" });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { disconnected: true });
+  assert.deepEqual(da.calls.disconnect, ["x"]);
+  await app.close();
+});
+
+test("POST /accounts/:id/disconnect 404s for an unknown account", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({ method: "POST", url: "/api/drive/accounts/nope/disconnect" });
+  assert.equal(res.statusCode, 404);
+  assert.deepEqual(da.calls.disconnect, []);
+  await app.close();
+});
+
+test("PATCH /accounts/:id renames with a trimmed label", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/drive/accounts/x",
+    payload: { label: "  Team Drive  " },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(da.calls.rename, [["x", "Team Drive"]]);
+  await app.close();
+});
+
+test("PATCH /accounts/:id rejects empty, blank, over-long and non-string labels", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  for (const payload of [{ label: "" }, { label: "   " }, { label: "a".repeat(101) }, { label: 5 }, {}]) {
+    const res = await app.inject({ method: "PATCH", url: "/api/drive/accounts/x", payload });
+    assert.equal(res.statusCode, 400);
+  }
+  assert.deepEqual(da.calls.rename, []);
+  await app.close();
+});
+
+test("PATCH /accounts/:id 404s for an unknown account", async () => {
+  const da = fakeDriveAuth();
+  const app = buildApp({ driveAuth: da });
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/drive/accounts/nope",
+    payload: { label: "Ok" },
+  });
+  assert.equal(res.statusCode, 404);
+  assert.deepEqual(da.calls.rename, []);
+  await app.close();
+});
+
+test("a server with no driveAuth reports an empty, unconfigured account list", async () => {
+  const app = buildApp();
+  const res = await app.inject({ method: "GET", url: "/api/drive/accounts" });
+  assert.deepEqual(res.json(), { configured: false, accounts: [] });
   await app.close();
 });
 

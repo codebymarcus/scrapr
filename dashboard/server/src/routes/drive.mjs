@@ -15,7 +15,19 @@ const unconfiguredDriveAuth = {
     throw new Error("Drive is not configured");
   },
   disconnect: () => {},
+  listAccounts: () => [],
+  renameAccount: () => {},
 };
+
+const MAX_LABEL_LENGTH = 100;
+
+// Returns the trimmed label, or null when it is not a usable account label.
+function parseLabel(body) {
+  const label = body?.label;
+  if (typeof label !== "string") return null;
+  const trimmed = label.trim();
+  return trimmed.length > 0 && trimmed.length <= MAX_LABEL_LENGTH ? trimmed : null;
+}
 
 const HINTS = {
   "not-configured":
@@ -50,19 +62,28 @@ function safeEqual(a, b) {
 // server-side (10 min TTL) AND set as an HttpOnly cookie. /callback only
 // exchanges the code when the `state` query param is a pending state and
 // matches the cookie, so a forged callback link (login CSRF) can't bind an
-// attacker's Google account to this dashboard.
+// attacker's Google account to this dashboard. An optional reconnect target
+// account id is bound to the state in the server-side map value; the callback
+// reads it from there, never from the request.
 export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now = Date.now } = {}) {
-  const pending = new Map(); // state -> expiry ms
+  const pending = new Map(); // state -> { expiry ms, targetAccountId }
 
   function prune() {
     const t = now();
-    for (const [s, exp] of pending) if (exp <= t) pending.delete(s);
+    for (const [s, entry] of pending) if (entry.expiry <= t) pending.delete(s);
   }
 
   function consumeState(state, cookieState) {
     prune();
-    if (!state || !cookieState || !safeEqual(state, cookieState)) return false;
-    return pending.delete(state);
+    if (!state || !cookieState || !safeEqual(state, cookieState)) return null;
+    const entry = pending.get(state);
+    if (!entry) return null;
+    pending.delete(state);
+    return entry;
+  }
+
+  function hasAccount(id) {
+    return driveAuth.listAccounts().some((a) => a.id === id);
   }
 
   const clearCookie = `${STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/api/drive; Max-Age=0`;
@@ -72,13 +93,26 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
     return { ...status, hint: hintFor(status) };
   });
 
+  app.get("/api/drive/accounts", async () => ({
+    configured: driveAuth.isConfigured(),
+    accounts: driveAuth.listAccounts(),
+  }));
+
   app.get("/api/drive/connect", async (req, reply) => {
     if (!driveAuth.isConfigured()) {
       return reply.code(409).send({ error: HINTS["not-configured"] });
     }
+    const { accountId } = req.query ?? {};
+    let targetAccountId;
+    if (accountId !== undefined) {
+      if (typeof accountId !== "string" || !hasAccount(accountId)) {
+        return reply.code(404).send({ error: "Drive account not found" });
+      }
+      targetAccountId = accountId;
+    }
     prune();
     const state = randomBytes(24).toString("base64url");
-    pending.set(state, now() + STATE_TTL_MS);
+    pending.set(state, { expiry: now() + STATE_TTL_MS, targetAccountId });
     reply.header(
       "set-cookie",
       `${STATE_COOKIE}=${state}; HttpOnly; SameSite=Lax; Path=/api/drive; Max-Age=${STATE_TTL_MS / 1000}`,
@@ -97,9 +131,10 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
     };
     if (error) return done("denied");
     if (typeof code !== "string" || !code) return done("error");
-    if (typeof state !== "string" || !consumeState(state, cookieState)) return done("error");
+    const entry = typeof state === "string" ? consumeState(state, cookieState) : null;
+    if (!entry) return done("error");
     try {
-      await driveAuth.exchangeCode(code);
+      await driveAuth.exchangeCode(code, { targetAccountId: entry.targetAccountId });
     } catch (err) {
       // Log only message/code: a gaxios error's `config` carries the auth code
       // and client_secret, so never log the error object itself.
@@ -109,8 +144,29 @@ export async function driveRoutes(app, { driveAuth = unconfiguredDriveAuth, now 
     return done("connected");
   });
 
+  // Back-compat: the pre-multi-account UI has one "Disconnect" button.
   app.post("/api/drive/disconnect", async () => {
-    driveAuth.disconnect();
+    for (const { id } of driveAuth.listAccounts()) driveAuth.disconnect(id);
     return { disconnected: true };
+  });
+
+  app.post("/api/drive/accounts/:id/disconnect", async (req, reply) => {
+    const { id } = req.params;
+    if (!hasAccount(id)) return reply.code(404).send({ error: "Drive account not found" });
+    driveAuth.disconnect(id);
+    return { disconnected: true };
+  });
+
+  app.patch("/api/drive/accounts/:id", async (req, reply) => {
+    const { id } = req.params;
+    const label = parseLabel(req.body);
+    if (label === null) {
+      return reply
+        .code(400)
+        .send({ error: `label must be a non-empty string of at most ${MAX_LABEL_LENGTH} characters` });
+    }
+    if (!hasAccount(id)) return reply.code(404).send({ error: "Drive account not found" });
+    driveAuth.renameAccount(id, label);
+    return { id, label };
   });
 }

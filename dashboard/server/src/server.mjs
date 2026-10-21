@@ -43,6 +43,13 @@ const driveAuth = createDriveAuth({
   clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
   redirectUri: GOOGLE_OAUTH_REDIRECT_URI,
 });
+// Migrate a pre-multi-account Drive token eagerly, so a run started right after
+// upgrade cannot execute before the legacy account exists. Never blocks boot.
+try {
+  driveAuth.ensureMigratedLegacyAccount();
+} catch (err) {
+  console.error("legacy Drive account migration failed:", err?.message ?? err);
+}
 if (
   GOOGLE_OAUTH_CLIENT_ID &&
   GOOGLE_OAUTH_CLIENT_SECRET &&
